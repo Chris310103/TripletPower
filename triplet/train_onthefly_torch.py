@@ -3,6 +3,7 @@ import random
 import numpy as np
 import torch
 import argparse as arg
+from tqdm.auto import tqdm
 
 from tools.ascad_loader import load_dataset, dissemble_data_dict
 from tools.loadData import get_labels
@@ -111,7 +112,7 @@ def main():
     # =========================================================================
     # Guess-key Loop
     # =========================================================================
-    for guess_key in range( args.start_idx, args.end_idx ):
+    for guess_key in tqdm(range(start_idx, end_idx), desc="Guessed keys", dynamic_ncols=True):
         print()
         print("=" * 70)
         print(f"Guess key: {guess_key}")

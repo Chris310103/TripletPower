@@ -242,7 +242,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     epoch_bar = tqdm(range(epochs), desc="TripletPower", dynamic_ncols=True)
 
-    for epoch in range(epoch_bar):
+    for epoch in epoch_bar:
 
         if epoch==0:
             all_sims=None
@@ -254,9 +254,9 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, all_sims)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, alpha_value)
+        loss=train_one_epoch(model, loader, optimizer, device, alpha_value, epoch=epoch)
 
-        print(f"epoch loss = {loss}")
+        epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
 
         if loss < best_loss:
@@ -265,8 +265,9 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
             torch.save(model.state_dict(), ckpt_path)
 
-            print( f"Best loss improved: " f"{old_best:.6f} -> {best_loss:.6f}" )
-            print(f"Saved checkpoint to: {ckpt_path}")
+            tqdm.write(f"Best loss improved: " f"{old_best:.6f} -> {best_loss:.6f}")
+
+            tqdm.write(f"Saved checkpoint to: {ckpt_path}")
 
         if (epoch+1) % 40 == 0:
             learning_rate /= 2
