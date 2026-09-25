@@ -3,7 +3,6 @@ import os
 import pdb
 import h5py
 import random
-import tensorflow as tf
 import numpy as np
 from collections import defaultdict
 import ast

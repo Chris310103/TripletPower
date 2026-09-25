@@ -15,7 +15,6 @@ from triplet.triplet_pytorch import (
     predict_knn_prob,
     limit_per_class
 )
-from tools.key_rank_new import ranking_curve
 
 def parse_args():
     parser=arg.ArgumentParser()
