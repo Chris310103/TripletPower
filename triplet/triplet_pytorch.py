@@ -254,7 +254,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, all_sims)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, alpha_value, epoch=epoch)
+        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
 
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
