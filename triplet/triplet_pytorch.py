@@ -205,6 +205,7 @@ class TripletBatchCollator():
 
         n_ids=build_negatives(a_ids, p_ids, self.neg_ids, self.id_2_label, self.alpha_value, self.all_sims)
 
+        assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
         a_batch=self.all_traces[a_ids]
         p_batch=self.all_traces[p_ids]
         n_batch=self.all_traces[n_ids]
