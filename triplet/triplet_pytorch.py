@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim import RMSprop
 from collections import defaultdict
 from sklearn.neighbors import KNeighborsClassifier
+from tqdm.auto import tqdm
 
 from tools.ascad_loader import load_dataset, dissemble_data_dict
 from tools.loadData import get_labels
@@ -197,11 +198,14 @@ class TripletBatchCollator():
         return (torch.as_tensor(a_batch, dtype=torch.float32).unsqueeze(-1), torch.as_tensor(p_batch, dtype=torch.float32).unsqueeze(-1), \
                 torch.as_tensor(n_batch, dtype=torch.float32).unsqueeze(-1))
 
-def train_one_epoch(model, dataloader, optimizer, device, alpha_value=0.5):
+def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5):
     model.train()
 
     running_loss=0.0
-    for barch_idx, (a, p, n) in enumerate(dataloader):
+
+    progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
+
+    for barch_idx, (a, p, n) in enumerate(progress_bar):
         a,p,n=a.to(device), p.to(device), n.to(device)
         optimizer.zero_grad()
 
@@ -236,7 +240,9 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
 
-    for epoch in range(epochs):
+    epoch_bar = tqdm(range(epochs), desc="TripletPower", dynamic_ncols=True)
+
+    for epoch in range(epoch_bar):
 
         if epoch==0:
             all_sims=None
@@ -268,7 +274,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
 
-    model.load_state_dict(torch.load(ckpt_path), map_location=device)
+    model.load_state_dict(torch.load(ckpt_path, map_location=device))
 
     return model, loss_log
 
