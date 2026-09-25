@@ -7,8 +7,6 @@ import tensorflow as tf
 import numpy as np
 from collections import defaultdict
 import ast
-from tensorflow.keras.models import load_model
-from tensorflow.keras.utils import to_categorical
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -68,6 +66,22 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
     """
     hw_mapping = create_hw_label_mapping()
 
+    if leakage_model == 'HW':
+        expected_classes = 9
+    elif leakage_model == 'ID':
+        expected_classes = 256
+    else:
+        raise ValueError(
+            f"Unsupported leakage model: {leakage_model}"
+        )
+
+    if preds.shape[1] != expected_classes:
+        raise ValueError(
+            f"For leakage_model={leakage_model}, "
+            f"expected preds with {expected_classes} classes, "
+            f"but got shape {preds.shape}"
+        )
+
     # GE/SR is averaged over 100 attacks
     num_averaged = 100
     # max trace num for attack
@@ -99,15 +113,22 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
                 sout = Sbox[initialState]
                 if leakage_model == 'ID':
                     label = sout
+                    prob_value_share = preds[random_index[i], label]
+
                 elif leakage_model == 'HW':
                     label = HW_byte[sout]
-                try:
-                    prob_value_share = preds[random_index[i], label] / len(hw_mapping[label])
-                    #score_mat[i, key_guess] = preds[random_index[i], label]
-                    score_mat[i, key_guess] = prob_value_share
-                except Exception as e:
-                    pdb.set_trace()
-                    print(e)
+                    prob_value_share = (
+                        preds[random_index[i], label]
+                        / len(hw_mapping[label])
+                    )
+
+                else:
+                    raise ValueError(
+                        f"Unsupported leakage model: {leakage_model}"
+                    )
+
+                score_mat[i, key_guess] = prob_value_share
+                
         score_mat = np.log(score_mat + 1e-40)
 
         #         ## customized by HL

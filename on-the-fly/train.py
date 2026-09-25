@@ -29,7 +29,7 @@ from tensorflow.keras import backend as K
 # importing loadDataUtility for some functions required for data preprocessing
 import tools.loadData as loadData
 import tools.model_zoo as model_zoo
-import mytools.tools as mytools
+import tools as mytools
 import tools.visualization as visualization
 
 alpha_value = 0.5
