@@ -1,4 +1,5 @@
 from pathlib import Path
+from joblib import dump
 import random
 import numpy as np
 import torch
@@ -202,6 +203,29 @@ def main():
         )
 
         print( f"Finished Triplet training for guess_key={guess_key}" )
+
+        # ============================================================
+        # Train kNN using ALL selected N traces
+        # ============================================================
+
+        classifier = train_knn(
+            model=model,
+            traces=x_n,
+            labels=labels_n,
+            n_neighbors=n_neighbors,
+        )
+
+        print("KNN classes:", classifier.classes_)
+
+        knn_dir = guess_dir / "knn"
+        knn_dir.mkdir(parents=True, exist_ok=True)
+
+        knn_path = knn_dir / "knn_model.joblib"
+
+        dump(classifier, knn_path)
+        np.save( guess_dir / "loss.npy", np.asarray(loss_log) )
+
+        print(f"Saved kNN to: {knn_path}")
 
 if __name__ == "__main__":
     main()        
