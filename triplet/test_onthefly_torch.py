@@ -36,7 +36,7 @@ def parse_args():
     return parser.parse_args()
 
 def plot_paper_style_accuracy(guess_keys, acc_matrix, test_trace_nums, real_key, save_path):
-    plt.figure(figsize=(6, 4))
+    plt.figure(figsize=(4.0, 3.0))
 
     x_pos = np.arange(len(test_trace_nums))
 
@@ -58,13 +58,14 @@ def plot_paper_style_accuracy(guess_keys, acc_matrix, test_trace_nums, real_key,
 
     plt.xticks(x_pos, test_trace_nums)
 
-    plt.xlabel("No. of test traces")
-    plt.ylabel("Accuracy")
+    plt.xlabel("No. of test traces", fontsize=11)
+    plt.ylabel("Accuracy", fontsize=11)
+    plt.tick_params(labelsize=10)
 
     plt.ylim(0.0, 1.0)
 
     if incorrect_label_added or correct_key_plotted:
-        plt.legend()
+        plt.legend(fontsize=9)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
