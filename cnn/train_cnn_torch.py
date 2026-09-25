@@ -19,6 +19,7 @@ def parse_args():
     parser.add_argument("--output_root", type=str, default="Output/cnn_pytorch")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--overfit_test", action="store_true")
     parser.add_argument("--target_byte", type=int, default=2)
     parser.add_argument("--leakage_model", type=str, choices=["HW", "ID"], default="HW")
     parser.add_argument("--n_traces", type=int, default=2000)
@@ -145,6 +146,10 @@ def main():
 
     print("Selected N traces:", x_n.shape)
     print("Saved selected indices to:", indices_path)
+    print("Trace min:", x_n.min())
+    print("Trace max:", x_n.max())
+    print("Trace mean:", x_n.mean())
+    print("Trace std:", x_n.std())
 
     # ============================================================
     # Generate labels
@@ -165,14 +170,19 @@ def main():
     # Match Keras validation_split=0.1 behavior
     # ============================================================
 
-    val_size=int(len(x_n)*args.val_split)
-    train_size=len(x_n)-val_size
-
-    x_train=x_n[:train_size]
-    y_train=labels_n[:train_size]
-
-    x_val=x_n[train_size:]
-    y_val=labels_n[train_size:]
+    if args.overfit_test:
+        x_train=x_n
+        y_train=labels_n
+        x_val=x_n
+        y_val=labels_n
+        print("[DEBUG] Overfit test enabled: train and validation use the same traces.")
+    else:
+        val_size=int(len(x_n)*args.val_split)
+        train_size=len(x_n)-val_size
+        x_train=x_n[:train_size]
+        y_train=labels_n[:train_size]
+        x_val=x_n[train_size:]
+        y_val=labels_n[train_size:]
 
     print("Train shape:", x_train.shape)
     print("Validation shape:", x_val.shape)

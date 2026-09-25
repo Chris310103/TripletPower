@@ -174,7 +174,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label, alpha_value, all_sims=Non
             neg_id=random.choice(neg_ids)
             final_neg.append(neg_id)
 
-        return final_neg
+    return final_neg
 
     
 class AnchorPositiveDataset(Dataset):
