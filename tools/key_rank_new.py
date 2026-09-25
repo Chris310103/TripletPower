@@ -56,7 +56,7 @@ def create_hw_label_mapping():
     return HW
 
 
-def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='HW', trace_num_max=500):
+def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='HW', trace_num_max=500, num_averaged=100):
     """
     - preds : the probability for each class (n*256 for a byte, n*9 for Hamming weight)
     - real_key : the key of the target device
@@ -81,8 +81,6 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
             f"but got shape {preds.shape}"
         )
 
-    # GE/SR is averaged over 100 attacks
-    num_averaged = 100
     # max trace num for attack
     guessing_entropy = np.zeros((num_averaged, trace_num_max))
     success_flag = np.zeros((num_averaged, trace_num_max))
@@ -163,6 +161,7 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
     np.savez(raw_save_path, x=x, y=guessing_entropy)
     print('[LOG] -- ranking raw data save to path: ', raw_save_path)
 
+    return guessing_entropy
 
 def get_the_labels(textins, key, target_byte):
     labels = []
