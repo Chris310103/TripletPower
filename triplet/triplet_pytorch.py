@@ -290,8 +290,6 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
 
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
-
     return model, loss_log
 
 def extract_embeddings(traces, model) -> np.ndarray:
@@ -312,16 +310,29 @@ def extract_embeddings(traces, model) -> np.ndarray:
 
     return embed
 
-def train_knn(model, traces, labels:np.ndarray, n_neighbors=10):
-    embeddings = extract_embeddings(traces, model)
+def train_knn(model,traces,labels:np.ndarray,n_neighbors=10,leakage_model="HW"):
+    embeddings=extract_embeddings(traces,model)
 
-    assert embeddings.ndim == 2 and embeddings.shape[1] == model.output_dim, f"wrong dimension of embeddings."
-    assert len(labels.shape) == 1, f"wrong dimension of labels."
-    assert len(embeddings) == len(labels)
+    assert embeddings.ndim==2 and embeddings.shape[1]==model.output_dim,"wrong dimension of embeddings."
+    assert labels.ndim==1,"wrong dimension of labels."
+    assert len(embeddings)==len(labels)
 
-    classifier=KNeighborsClassifier(n_neighbors=n_neighbors, weights="distance", metric="cosine", algorithm="brute")
+    num_classes=9 if leakage_model=="HW" else 256
+    missing_classes=sorted(set(range(num_classes))-set(labels.astype(int)))
 
-    classifier.fit(embeddings, labels)
+    if missing_classes:
+        print(f"[WARNING] Missing classes in kNN training: {missing_classes}")
+
+        dummy_embeddings=np.zeros((len(missing_classes),embeddings.shape[1]),dtype=embeddings.dtype)
+        dummy_labels=np.asarray(missing_classes,dtype=labels.dtype)
+
+        embeddings=np.concatenate((embeddings,dummy_embeddings),axis=0)
+        labels=np.concatenate((labels,dummy_labels),axis=0)
+
+    classifier=KNeighborsClassifier(n_neighbors=n_neighbors,weights="distance",metric="cosine",algorithm="brute")
+    classifier.fit(embeddings,labels)
+
+    print("KNN classes:",classifier.classes_)
 
     return classifier
 

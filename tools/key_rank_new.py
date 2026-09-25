@@ -114,7 +114,7 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
 
                 elif leakage_model == 'HW':
                     label = HW_byte[sout]
-                    prob_value_share = preds[random_index[i], label]
+                    prob_value_share = preds[random_index[i], label] / len(hw_mapping[label])
 
                 else:
                     raise ValueError(
