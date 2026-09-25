@@ -28,21 +28,22 @@ def plot_panel(ax, cnn_rank, triplet_rank, n_traces):
     ax.plot(x, cnn_rank, color="black", linewidth=0.8, marker="s", markevery=marker_idx, markersize=5.5, markerfacecolor="none", markeredgewidth=0.8, label="CNN")
     ax.plot(x, triplet_rank, color="#b8ad00", linewidth=0.8, marker="o", markevery=marker_idx, markersize=5.5, markerfacecolor="none", markeredgewidth=0.8, label="TripletPower (Ours)")
 
-    ax.set_xlabel("No. of test traces", fontsize=9)
-    ax.set_ylabel("Mean rank", fontsize=9)
+    ax.set_xlabel("No. of test traces",fontsize=8)
+    ax.set_ylabel("Mean rank",fontsize=8)
+
+
 
     ax.set_ylim(0,256)
     ax.set_yticks([0,64,128,192,256])
 
     ax.set_xlim(0,max_len)
-    ax.tick_params(axis="both", labelsize=8, width=0.7, length=3)
+    ax.tick_params(axis="both",labelsize=7,width=0.7,length=3)
 
     for spine in ax.spines.values():
         spine.set_linewidth(0.7)
 
-    ax.legend(fontsize=8, frameon=True, loc="best", handlelength=2.2, borderpad=0.4, labelspacing=0.4)
-
-    ax.text(0.5,-0.27,f"No. of training traces $N={n_traces:,}$", transform=ax.transAxes, ha="center", va="top", fontsize=9)
+    ax.legend(fontsize=7,frameon=True,loc="best",handlelength=2.0,borderpad=0.35,labelspacing=0.3)
+    ax.text(0.5,-0.24,f"No. of training traces $N={n_traces:,}$",transform=ax.transAxes,ha="center",va="top",fontsize=8)    
 
 
 def main():
@@ -52,7 +53,7 @@ def main():
         raise ValueError("n_values, cnn_rank_paths and triplet_rank_paths must have the same length")
 
     num_panels=len(args.n_values)
-    fig,axes=plt.subplots(1,num_panels,figsize=(4.1*num_panels,3.0),squeeze=False)
+    ig,axes=plt.subplots(1,num_panels,figsize=(3.8*num_panels,2.7),squeeze=False)
     axes=axes[0]
 
     for i,n_traces in enumerate(args.n_values):
