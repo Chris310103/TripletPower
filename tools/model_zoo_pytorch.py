@@ -5,12 +5,13 @@ class CNN_Best(nn.Module):
     """
     The same backbone as the one used in the triplet network, ported from TensorFlow to PyTorch.
     """
-    def __init__(self, input_channels: int = 1, input_length: int = 700, embed_size: int = 256):
+    def __init__(self, input_channels: int = 1, input_length: int = 700, output_dim: int = 256, classification=False):
         super().__init__()
 
         self.input_channels=input_channels
         self.input_length=input_length
-        self.output_dim=embed_size
+        self.output_dim=output_dim
+        self.classification = classification
 
         self.feature_extractor=nn.Sequential(
             # block 1
@@ -43,11 +44,12 @@ class CNN_Best(nn.Module):
         with torch.no_grad():
             dummy_input=torch.zeros(1, self.input_channels, self.input_length)
             dummy_output=self.feature_extractor(dummy_input)
-            flatten_size=dummy_output.view(1, -1).size(1)
+            dummy_output=dummy_output.transpose(1,2)
+            flatten_size=dummy_output.reshape(1, -1).size(1)
 
             self.flatten_size=flatten_size
 
-        self.embed_head=nn.Sequential(
+        self.fc=nn.Sequential(
             nn.Flatten(),
             # first layer
             nn.Linear(flatten_size, 4096),
@@ -56,12 +58,15 @@ class CNN_Best(nn.Module):
             # second layer
             nn.Linear(4096, 4096),
             nn.ReLU(inplace=True),
-
-            # third layer
-            nn.Linear(4096, self.output_dim),
-            nn.ReLU(inplace=True),
         )
 
+        if self.classification:
+            self.output_layer=nn.Linear(4096, self.output_dim)
+        else:
+            self.output_layer=nn.Sequential(
+                nn.Linear(4096, self.output_dim),
+                nn.ReLU(inplace=True)
+                )
         # keras-stile weight initialization
         self.apply(self.init_keras_weights)
 
@@ -94,7 +99,9 @@ class CNN_Best(nn.Module):
         h=self.feature_extractor(x)
         h=h.transpose(1, 2)
 
-        y=self.embed_head(h)
+        h = self.fc(h)
+
+        y=self.output_layer(h)
 
         return y
 
@@ -102,10 +109,12 @@ def build_cnn_best(input_shape, emb_size=256, classification=False):
     input_length=input_shape[0]
     input_channels=input_shape[1]
 
-    if classification:
-        raise NotImplementedError( "classification=True is not implemented yet." )
-    else:
-        model=CNN_Best(input_channels, input_length, embed_size=emb_size)
+    model = CNN_Best(
+        input_channels=input_channels,
+        input_length=input_length,
+        output_dim=emb_size,
+        classification=classification,
+    )
 
     return model
 
