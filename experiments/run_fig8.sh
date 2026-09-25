@@ -32,7 +32,7 @@ echo "N values: ${N_VALUES[*]}"
 CNN_RANK_PATHS=()
 TRIPLET_RANK_PATHS=()
 
-for N in "${N_VAsLUES[@]}"
+for N in "${N_VALUES[@]}"
 do
     echo
     echo "============================================================"
