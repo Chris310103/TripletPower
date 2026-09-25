@@ -3,6 +3,7 @@ import argparse as arg
 import numpy as np
 import torch
 import random
+from tqdm.auto import tqdm
 
 from joblib import load
 from sklearn.metrics import accuracy_score
@@ -40,59 +41,85 @@ def main():
     dissemble_data_dict(attack_data, tracewindow=(0,700), which_one="test")
 
     model_root=Path(opts.model_root)
-    guess_dir =  model_root / "guess_key_0"
+    acc_list = []
 
-    ckpt_path = guess_dir / "ckpt" / "triplet_best.pt"
-    knn_path = guess_dir / "knn" / "knn_model.joblib"
+    for guess_key in tqdm( range(opts.start_idx, opts.end_idx), desc="Testing guessed keys", dynamic_ncols=True):
+        guess_dir =  model_root / "guess_key_0"
 
-    # =========================================================================
-    # Reproducibility
-    # =========================================================================
+        ckpt_path = guess_dir / "ckpt" / "triplet_best.pt"
+        knn_path = guess_dir / "knn" / "knn_model.joblib"
 
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        # =========================================================================
+        # Reproducibility
+        # =========================================================================
 
-    # =========================================================================
-    # Device
-    # =========================================================================
-    if torch.cuda.is_available():
-        device=torch.device("cuda")
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
-    elif torch.backends.mps.is_available():
-        device=torch.device("mps")
+        # =========================================================================
+        # Device
+        # =========================================================================
+        if torch.cuda.is_available():
+            device=torch.device("cuda")
 
-    else:
-        device = torch.device("cpu")
+        elif torch.backends.mps.is_available():
+            device=torch.device("mps")
 
-    print("Device:", device)
-    
-    # =========================================================================
-    # Load feat model
-    # =========================================================================    
-    model = build_cnn_best(input_shape=(700, 1), emb_size=256, classification=False)
+        else:
+            device = torch.device("cpu")
 
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+        print("Device:", device)
+        
+        # =========================================================================
+        # Load feat model
+        # =========================================================================    
+        model = build_cnn_best(input_shape=(700, 1), emb_size=256, classification=False)
 
-    model.to(device)
-    model.eval()
+        model.load_state_dict(torch.load(ckpt_path, map_location=device))
 
-    attack_embeddings = extract_embeddings(attack_traces, model)
+        model.to(device)
+        model.eval()
 
-    # =========================================================================
-    # Load knn
-    # =========================================================================
-    classifier = load(knn_path)
+        attack_embeddings = extract_embeddings(attack_traces, model)
 
-    pred_y = classifier.predict(attack_embeddings)
+        # =========================================================================
+        # Load knn
+        # =========================================================================
+        classifier = load(knn_path)
 
-    expected_y = get_labels(attack_plaintext, guess_key, opts.target_byte, opts.leakage_model)
+        pred_y = classifier.predict(attack_embeddings)
 
-    acc = accuracy_score(expected_y, pred_y)
+        expected_y = get_labels(attack_plaintext, guess_key, opts.target_byte, opts.leakage_model)
 
-    print(f"guess_key={guess_key}, " f"accuracy={acc:.6f}")
+        acc = accuracy_score(expected_y, pred_y)
+
+        print(f"guess_key={guess_key}, " f"accuracy={acc:.6f}")
+
+        # ============================================================
+        # Labels under current guessed key
+        # ============================================================
+
+        expected_y = get_labels(attack_plaintext, guess_key, opts.target_byte, opts.leakage_model)
+
+        acc = accuracy_score(expected_y, pred_y)
+
+        acc_list.append(acc)
+
+        tqdm.write(f"guess_key={guess_key}, accuracy={acc:.6f}")
+
+        acc_list = np.asarray(acc_list, dtype=np.float64)
+
+        result_dir = model_root / "results"
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        result_path = (result_dir / f"accuracy_{opts.start_idx}_{opts.end_idx}.npy")
+
+        np.save(result_path, acc_list)
+
+        print(f"Saved accuracy results to: {result_path}")
 
 if __name__ == "__main__":
     main()
