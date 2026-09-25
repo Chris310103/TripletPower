@@ -297,14 +297,14 @@ def extract_embeddings(traces, model) -> np.ndarray:
 
     return embed
 
-def train_knn(model, traces, labels:np.ndarray, n_neighbours=10):
+def train_knn(model, traces, labels:np.ndarray, n_neighbors=10):
     embeddings = extract_embeddings(traces, model)
 
     assert embeddings.ndim == 2 and embeddings.shape[1] == model.output_dim, f"wrong dimension of embeddings."
     assert len(labels.shape) == 1, f"wrong dimension of labels."
     assert len(embeddings) == len(labels)
 
-    classifier=KNeighborsClassifier(n_neighbors=n_neighbours, weights="distance", metric="cosine", algorithm="brute")
+    classifier=KNeighborsClassifier(n_neighbors=n_neighbors, weights="distance", metric="cosine", algorithm="brute")
 
     classifier.fit(embeddings, labels)
 
