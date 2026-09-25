@@ -24,6 +24,9 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--target_byte', type=int, default=2)
     parser.add_argument("--sample_num_limit", type=int, default=300)
+    parser.add_argument("--selected_indices_path", type=str, default=None)
+    parser.add_argument("--trace_num_max", type=int, default=500)
+    parser.add_argument("--num_averaged", type=int, default=100)
     parser.add_argument('--leakage_model', type=str, choices=['HW', 'ID'], default="HW")
     parser.add_argument('--n_traces', type=int, default=2000)
     parser.add_argument('--alpha_value', type=float, default=0.5)
@@ -89,10 +92,16 @@ def main():
     # ============================================================
     # Prepare profiling data
     # ============================================================
+    selected_indices=None
 
-    (x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label,) = \
-        getCLSidDict(data_path=data_path, n_traces=n_traces, sample_num_limit=sample_num_limit, 
-                    leakage_model=leakage_model,target_byte=target_byte,)
+    if args.selected_indices_path is not None:
+        selected_indices=np.load(args.selected_indices_path)
+        print("Loaded fixed profiling indices:", args.selected_indices_path)
+        print("Number of fixed indices:", len(selected_indices)) 
+
+    x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label = \
+        getCLSidDict(data_path=data_path, n_traces=n_traces,\
+        sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, selected_indices=selected_indices)
 
     print("All N profiling traces:", x_n.shape)
     print("Triplet subset:", x_limited.shape)
@@ -159,14 +168,8 @@ def main():
     # =========================================================================
     # Key-rank
     # =========================================================================
-    ranking_curve(
-        preds=attack_probabilities,
-        key=attack_real_key,
-        plaintext=attack_plaintext,
-        target_byte=target_byte,
-        rank_root=rank_root,
-        leakage_model=leakage_model,
-    )
+    ranking_curve(preds=attack_probabilities, key=attack_real_key, plaintext=attack_plaintext, target_byte=target_byte, \
+                rank_root=rank_root, leakage_model=leakage_model, trace_num_max=args.trace_num_max, num_averaged=args.num_averaged)
 
     print("TripletPower pipeline finished.")
 

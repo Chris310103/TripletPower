@@ -86,7 +86,7 @@ def limit_per_class(x,  labels, sample_num_limit: int,):
 
     return x_limited, labels_limited, label_2_id, id_2_label, selected_indices
 
-def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_byte=2):
+def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_byte=2, selected_indices=None):
 
     data_dict=load_dataset(str(data_path), which_one="train")
     x,_,plain_text, key=dissemble_data_dict(data_dict, tracewindow=(0, 700), which_one="train")
@@ -94,7 +94,21 @@ def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_by
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
 
-    selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
+    if selected_indices is None:
+        if n_traces > len(x):
+            raise ValueError("the number of n_traces bigger than that of x")
+        selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
+    else:
+        selected_n_indices=np.asarray(selected_indices, dtype=np.int64)
+
+        if selected_n_indices.ndim != 1:
+            raise ValueError("selected_indices must be a 1-D array")
+
+        if len(selected_n_indices) != n_traces:
+            raise ValueError(f"selected_indices has {len(selected_n_indices)} entries, expected n_traces={n_traces}")
+
+        if selected_n_indices.min() < 0 or selected_n_indices.max() >= len(x):
+            raise ValueError("selected_indices contains out-of-range indices")
 
     x_n=x[selected_n_indices]
     plain_text_n=plain_text[selected_n_indices]
