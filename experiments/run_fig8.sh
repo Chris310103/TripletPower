@@ -4,6 +4,17 @@ set -e
 DATA="$HOME/TripletPower/data/ASCAD.h5"
 
 EPOCHS="${1:-100}"
+
+if [ "$#" -gt 0 ]; then
+    shift
+fi
+
+if [ "$#" -eq 0 ]; then
+    N_VALUES=(250 2000 4000)
+else
+    N_VALUES=("$@")
+fi
+
 BATCH_SIZE=100
 TARGET_BYTE=2
 LEAKAGE_MODEL="HW"
@@ -15,9 +26,13 @@ ALPHA=0.5
 N_NEIGHBORS=10
 NUM_AVERAGED=5
 
-echo "Fig.8 experiment epochs: $EPOCHS"
+echo "Epochs: $EPOCHS"
+echo "N values: ${N_VALUES[*]}"
 
-for N in 250 2000 4000
+CNN_RANK_PATHS=()
+TRIPLET_RANK_PATHS=()
+
+for N in "${N_VAsLUES[@]}"
 do
     echo
     echo "============================================================"
@@ -37,6 +52,9 @@ do
 
     RANK_NAME="fig8_N${N}"
     INDICES_PATH="Output/cnn_pytorch/N_${N}/selected_indices.npy"
+
+    CNN_RANK_PATHS+=("Output/cnn_pytorch/N_${N}/rank/ranking_raw_data.npz")
+    TRIPLET_RANK_PATHS+=("Output/triplet_pytorch/profiling/rank/fig8_N${N}/ranking_raw_data.npz")
 
     echo
     echo "------------------------------------------------------------"
@@ -101,15 +119,9 @@ echo "All training finished. Plotting Fig.8..."
 echo "============================================================"
 
 python experiments/plot_fig8.py \
-    --n_values 250 2000 4000 \
-    --cnn_rank_paths \
-        "Output/cnn_pytorch/N_250/rank/ranking_raw_data.npz" \
-        "Output/cnn_pytorch/N_2000/rank/ranking_raw_data.npz" \
-        "Output/cnn_pytorch/N_4000/rank/ranking_raw_data.npz" \
-    --triplet_rank_paths \
-        "Output/triplet_pytorch/profiling/rank/fig8_N250/ranking_raw_data.npz" \
-        "Output/triplet_pytorch/profiling/rank/fig8_N2000/ranking_raw_data.npz" \
-        "Output/triplet_pytorch/profiling/rank/fig8_N4000/ranking_raw_data.npz" \
+    --n_values "${N_VALUES[@]}" \
+    --cnn_rank_paths "${CNN_RANK_PATHS[@]}" \
+    --triplet_rank_paths "${TRIPLET_RANK_PATHS[@]}" \
     --output "Output/fig8/fig8_full.png"
 
 echo
