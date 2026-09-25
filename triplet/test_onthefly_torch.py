@@ -96,8 +96,6 @@ def main():
 
         acc = accuracy_score(expected_y, pred_y)
 
-        print(f"guess_key={guess_key}, " f"accuracy={acc:.6f}")
-
         # ============================================================
         # Labels under current guessed key
         # ============================================================
@@ -110,16 +108,16 @@ def main():
 
         tqdm.write(f"guess_key={guess_key}, accuracy={acc:.6f}")
 
-        acc_list = np.asarray(acc_list, dtype=np.float64)
+    acc_array = np.asarray(acc_list, dtype=np.float64)
 
-        result_dir = model_root / "results"
-        result_dir.mkdir(parents=True, exist_ok=True)
+    result_dir = model_root / "results"
+    result_dir.mkdir(parents=True, exist_ok=True)
 
-        result_path = (result_dir / f"accuracy_{opts.start_idx}_{opts.end_idx}.npy")
+    result_path = (result_dir / f"accuracy_{opts.start_idx}_{opts.end_idx}.npy")
 
-        np.save(result_path, acc_list)
+    np.save(result_path, acc_array)
 
-        print(f"Saved accuracy results to: {result_path}")
+    print(f"Saved accuracy results to: {result_path}")
 
 if __name__ == "__main__":
     main()
