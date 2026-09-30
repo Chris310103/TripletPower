@@ -89,7 +89,7 @@ def limit_per_class(x,  labels, sample_num_limit: int,):
 def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_byte=2, selected_indices=None):
 
     data_dict=load_dataset(str(data_path), which_one="train")
-    x,_,plain_text, key=dissemble_data_dict(data_dict, tracewindow=(0, 700), which_one="train")
+    x,ascad_label,plain_text, key=dissemble_data_dict(data_dict, tracewindow=(0, 700), which_one="train")
 
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
@@ -115,7 +115,17 @@ def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_by
 
     key_byte = key[target_byte]
 
+    print("key shape:", np.asarray(key).shape)
+    print("key:", key)  
+
     labels_n=get_labels(plain_text_n, key_byte, target_byte, leakage_model=leakage_model)
+
+    ascad_label = ascad_label[selected_n_indices]
+    ascad_hw=np.array([bin(int(v)).count('1') for v in ascad_label], dtype=np.int64)
+    match_rate=np.mean(ascad_hw==labels_n)
+
+    print( "=================================" )
+    print( "ASCAD stored-label vs computed-HW match:", match_rate)
 
     x_limited, labels_limited, label_2_id, id_2_label, selected_u_indices = limit_per_class(x_n, labels_n, sample_num_limit)
 
@@ -206,6 +216,18 @@ class TripletBatchCollator():
         n_ids=build_negatives(a_ids, p_ids, self.neg_ids, self.id_2_label, self.alpha_value, self.all_sims)
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
+
+        for a_id, p_id in zip(a_ids, p_ids):
+            assert (
+                self.id_2_label[a_id]
+                == self.id_2_label[p_id]
+            ), (
+                f"Invalid positive pair: "
+                f"{a_id}, {p_id}, "
+                f"{self.id_2_label[a_id]}, "
+                f"{self.id_2_label[p_id]}"
+            )
+
         a_batch=self.all_traces[a_ids]
         p_batch=self.all_traces[p_ids]
         n_batch=self.all_traces[n_ids]
@@ -290,6 +312,13 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
 
+    model.eval()
+
+    print(
+        f"Reloaded best TripletPower checkpoint "
+        f"with loss={best_loss:.6f}"
+    )
+
     return model, loss_log
 
 def extract_embeddings(traces, model) -> np.ndarray:
@@ -322,12 +351,6 @@ def train_knn(model,traces,labels:np.ndarray,n_neighbors=10,leakage_model="HW"):
 
     if missing_classes:
         print(f"[WARNING] Missing classes in kNN training: {missing_classes}")
-
-        dummy_embeddings=np.zeros((len(missing_classes),embeddings.shape[1]),dtype=embeddings.dtype)
-        dummy_labels=np.asarray(missing_classes,dtype=labels.dtype)
-
-        embeddings=np.concatenate((embeddings,dummy_embeddings),axis=0)
-        labels=np.concatenate((labels,dummy_labels),axis=0)
 
     classifier=KNeighborsClassifier(n_neighbors=n_neighbors,weights="distance",metric="cosine",algorithm="brute")
     classifier.fit(embeddings,labels)

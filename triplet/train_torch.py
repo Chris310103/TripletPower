@@ -3,8 +3,10 @@ import random
 import numpy as np
 import torch
 import argparse as arg
+from sklearn.metrics import accuracy_score
 
 from tools.ascad_loader import load_dataset, dissemble_data_dict
+from tools.loadData import get_labels   
 from tools.model_zoo_pytorch import build_cnn_best
 from triplet.triplet_pytorch import (
     getCLSidDict,
@@ -165,6 +167,10 @@ def main():
         leakage_model=leakage_model
     )
 
+    attack_expected=get_labels(attack_plaintext, int(attack_real_key[target_byte]), target_byte, leakage_model)
+    attack_pred=np.argmax(attack_probabilities,axis=1)
+    attack_acc=accuracy_score(attack_expected,attack_pred)
+    print(f"TripletPower attack classification accuracy: {attack_acc:.6f}")
     # =========================================================================
     # Key-rank
     # =========================================================================
