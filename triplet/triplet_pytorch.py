@@ -312,11 +312,38 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
 
+        with torch.no_grad():
+            emb = model(
+                all_traces_tensor
+            )
+
+            norms = torch.linalg.vector_norm(
+                emb,
+                dim=1,
+            )
+
+        zero_fraction = (
+            norms < 1e-8
+        ).float().mean().item()
+
+        print(
+            f"[epoch {epoch}] "
+            f"embedding norm mean="
+            f"{norms.mean().item():.6f}, "
+            f"zero fraction="
+            f"{zero_fraction:.6f}"
+        )
+
+    final_ckpt_path = (Path(ckpt_path).parent / "triplet_final.pt")
+    torch.save(model.state_dict(), final_ckpt_path,)
+
+    print(f"Saved FINAL TripletPower model to: " f"{final_ckpt_path}")
+
     model.eval()
 
     print(
-        f"Reloaded best TripletPower checkpoint "
-        f"with loss={best_loss:.6f}"
+        f"Training finished. Returning FINAL epoch model. "
+        f"Best observed training loss={best_loss:.6f}"
     )
 
     return model, loss_log
