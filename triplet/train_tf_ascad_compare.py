@@ -15,6 +15,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
 
 import triplet.triplet as legacy_triplet
+import tensorflow.keras.backend as K
 
 from tools.ascad_loader import (
     load_dataset,
@@ -23,6 +24,34 @@ from tools.ascad_loader import (
 from tools.loadData import get_labels
 from tools.key_rank_new import ranking_curve
 
+def tf21_identity_loss( y_true, y_pred, ):
+    return K.mean(y_pred)
+
+def tf21_cosine_triplet_loss(X):
+    positive_sim, negative_sim = X
+
+    losses = K.maximum(0.0, negative_sim - positive_sim + float(legacy_triplet.alpha_value),)
+
+    return losses
+
+legacy_triplet.identity_loss = (
+    tf21_identity_loss
+)
+
+legacy_triplet.cosine_triplet_loss = (
+    tf21_cosine_triplet_loss
+)
+
+print(
+    "[COMPAT] Patched legacy TripletPower "
+    "loss shape for modern TensorFlow."
+)
+
+print("tf.keras module:", tf.keras)
+print(
+    "RMSprop used by legacy_triplet:",
+    legacy_triplet.RMSprop,
+)
 
 # ============================================================
 # CONFIG
@@ -455,4 +484,38 @@ print("\nDONE")
 print(
     "Results:",
     RUN_ROOT
+)
+print("\n" + "=" * 80)
+print("COMPARISON TARGET")
+print("=" * 80)
+
+print(
+    "PyTorch corrected reference:"
+)
+
+print(
+    "  Attack HW accuracy: 0.2201"
+)
+
+print(
+    "  Key rank: non-convergent"
+)
+
+print(
+    "\nTensorFlow legacy:"
+)
+
+print(
+    "  Attack HW accuracy:",
+    attack_acc,
+)
+
+print(
+    "  Minimum rank:",
+    float(rank_curve.min()),
+)
+
+print(
+    "  Final rank:",
+    float(rank_curve[-1]),
 )
