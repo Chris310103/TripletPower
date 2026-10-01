@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--n_neighbors', type=int, default=10)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
-    parser.add_argument("--legacy_nagetive_map", action="store_true", help=("Reproduce the uploaded legacy TensorFlow "
+    parser.add_argument("--legacy_negative_map", action="store_true", help=("Reproduce the uploaded legacy TensorFlow "
                         "source behavior by passing label_2_id"
                         "(class -> IDs) into negative mining."),)
 
@@ -129,7 +129,7 @@ def main():
     # =========================================================================
     # Train Triplet network
     # =========================================================================
-    if args.legacy_negative_map:
+    if legacy_map:
         negative_map = label_2_id
 
         print(
