@@ -229,7 +229,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
                 if (id_2_label[neg_id]!=anchor_class):
                     final_neg.append(neg_id)
-                    neg_sim=all_sims[a_id, neg_id,]
+                    neg_sim=all_sims[a_id, neg_id]
 
                     stats["total"]+=1
 
@@ -241,14 +241,14 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
                     appended=True
                     break
 
-                if not appended:
-                    neg_id=random.choice(neg_ids)
-                    final_neg.append(neg_id)
-                    stats["total"]+=1
-                    stats["fallback_random"]+=1
+            if not appended:
+                neg_id=random.choice(neg_ids)
+                final_neg.append(neg_id)
+                stats["total"]+=1
+                stats["fallback_random"]+=1
 
-                    if id_2_label[neg_id]==anchor_class:
-                        stats["same_class_negative"]+=1
+                if id_2_label[neg_id]==anchor_class:
+                    stats["same_class_negative"]+=1
         # ========================================================
         # MODE B:
         # TRUE SEMI-HARD
@@ -305,6 +305,12 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             stats["total"] += 1
             stats["random_valid"] += 1
+
+    assert len(final_neg) == len(a_ids), (
+    f"build_negatives mismatch: "
+    f"anchors={len(a_ids)}, "
+    f"negatives={len(final_neg)}"
+)
 
     return final_neg
 
