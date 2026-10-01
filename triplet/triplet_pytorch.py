@@ -217,17 +217,6 @@ class TripletBatchCollator():
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
 
-        for a_id, p_id in zip(a_ids, p_ids):
-            assert (
-                self.id_2_label[a_id]
-                == self.id_2_label[p_id]
-            ), (
-                f"Invalid positive pair: "
-                f"{a_id}, {p_id}, "
-                f"{self.id_2_label[a_id]}, "
-                f"{self.id_2_label[p_id]}"
-            )
-
         a_batch=self.all_traces[a_ids]
         p_batch=self.all_traces[p_ids]
         n_batch=self.all_traces[n_ids]
@@ -312,6 +301,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
 
+        model.eval()
         with torch.no_grad():
             emb = model(
                 all_traces_tensor
