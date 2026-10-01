@@ -208,7 +208,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
     # Epoch >= 1
     # ============================================================
     for a_id, p_id in zip(a_ids, p_ids):
-        anchor_class=id_2_label(a_id)
+        anchor_class=id_2_label[a_id]
         pos_sim=all_sims[a_id, p_id]
 
         # ========================================================
@@ -340,8 +340,17 @@ class TripletBatchCollator():
         a_ids=[item[0] for item in batch]
         p_ids=[item[1] for item in batch]
 
-        n_ids=build_negatives(a_ids, p_ids, self.neg_ids, self.id_2_label, self.alpha_value, self.all_sims, self.negative_mode,
-                            valid_neg_ids_by_class=self.valid_neg_ids_by_class, stats=self.stats)
+        n_ids = build_negatives(
+            a_ids=a_ids,
+            p_ids=p_ids,
+            neg_ids=self.neg_ids,
+            id_2_label=self.id_2_label,
+            alpha_value=self.alpha_value,
+            all_sims=self.all_sims,
+            negative_mode=self.negative_mode,
+            valid_neg_ids_by_class=self.valid_neg_ids_by_class,
+            stats=self.stats,
+        )
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
 
