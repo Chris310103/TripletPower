@@ -155,7 +155,7 @@ def intersect(a,b):
 def build_negatives(a_ids, p_ids, neg_ids, id_2_label, 
                 alpha_value, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
                 stats=None, legacy_label_2_id=None):
-    if negative_mode not in {"current", "true_semihard", "random_valid", "legacy_label_2_id"}:
+    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy"}:
         raise ValueError(f"unsupported negative_mode: {negative_mode}")
 
     if stats is None:
@@ -519,12 +519,11 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             f"mining={negative_mode} | "
             f"hard={stats['hard']/total:.3f} | "
             f"semihard={stats['semihard']/total:.3f} | "
-            f"random_valid={stats['random_valid']/total:.3f} | "
-            f"fallback_random={stats['fallback_random']/total:.3f} | "
-            f"fallback_valid={stats['fallback_random_valid']/total:.3f} | "
+            f"easy={stats['easy']/total:.3f} | "
+            f"legacy_candidate={stats['legacy_candidate']/total:.3f} | "
+            f"legacy_fallback={stats['legacy_fallback']/total:.3f} | "
             f"same_class={stats['same_class_negative']/total:.3f}"
         )
-
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
 
