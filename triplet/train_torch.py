@@ -39,7 +39,7 @@ def parse_args():
                         "source behavior by passing label_2_id"
                         "(class -> IDs) into negative mining."),)
     parser.add_argument("--negative_mode", type=str, 
-                    choices=[ "current", "true_semihard", "random_valid", ], default="current",)
+                    choices=[ "current", "true_semihard", "random_valid", "legacy_label_2_id"], default="current",)
 
     return parser.parse_args()
     
@@ -160,6 +160,7 @@ def main():
         learning_rate=lr,
         alpha_value=alpha_value,
         negative_mode=(args.negative_mode),
+        legacy_label_2_id=label_2_id
     )
 
     # =========================================================================
