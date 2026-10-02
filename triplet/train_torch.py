@@ -40,6 +40,7 @@ def parse_args():
                         "(class -> IDs) into negative mining."),)
     parser.add_argument("--negative_mode", type=str, 
                     choices=[ "current", "true_semihard", "random_valid", "tf_legacy"], default="current",)
+    parser.add_argument("--mixed_violation_prob", type=float, default=0.10,)
 
     return parser.parse_args()
     
@@ -160,7 +161,8 @@ def main():
         learning_rate=lr,
         alpha_value=alpha_value,
         negative_mode=(args.negative_mode),
-        legacy_label_2_id=label_2_id
+        legacy_label_2_id=label_2_id,
+        mixed_violation_prob=args.mixed_violation_prob
     )
 
     # =========================================================================

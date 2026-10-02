@@ -154,8 +154,8 @@ def intersect(a,b):
 
 def build_negatives(a_ids, p_ids, neg_ids, id_2_label, 
                 alpha_value, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
-                stats=None, legacy_label_2_id=None):
-    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy"}:
+                stats=None, legacy_label_2_id=None, mixed_violation_prob=0.10):
+    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"}:
         raise ValueError(f"unsupported negative_mode: {negative_mode}")
 
     if stats is None:
@@ -282,6 +282,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             stats["total"] += 1
             stats["random_valid"] += 1
+            stats["mixed_random_valid"]+=1
 
         return final_neg    
 
@@ -371,27 +372,57 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
         # RANDOM DIFFERENT-CLASS NEGATIVE
         # ========================================================
 
-        elif (
-            negative_mode
-            == "random_valid"
-        ):
+        elif ( negative_mode == "random_valid" ):
 
-            neg_id = choose_random_valid(
-                anchor_class
-            )
-
-            final_neg.append(
-                neg_id
-            )
+            neg_id = choose_random_valid( anchor_class )
+            final_neg.append( neg_id )
 
             stats["total"] += 1
             stats["random_valid"] += 1
 
+        elif negative_mode=="mixed_valid":
+            use_violation=(random.random()<mixed_violation_prob)
+
+            neg_id=None
+
+            if use_violation:
+                possible_ids=np.where((all_sims[a_id]+alpha_value)>pos_sim)[[0]]
+                possible_ids=intersect(possible_ids, neg_ids)
+                possible_ids=[idx for idx in possible_ids if id_2_label[idx] != anchor_class]
+
+                if len(possible_ids)>0:
+                    neg_id=random.choice(possible_ids)
+                    stats["mixed_violation"]+=1
+                else:
+                    stats["mixed_violation_fallback"]+=1
+
+            if neg_id is None:
+
+                neg_id = choose_random_valid( anchor_class )
+                stats[ "mixed_random_valid" ] += 1
+                neg_sim = all_sims[
+                        a_id,
+                        neg_id
+                    ]
+
+                if neg_sim >= pos_sim:
+                    stats["hard"] += 1
+
+                elif ( neg_sim > pos_sim - alpha_value ):
+
+                    stats["semihard"] += 1
+
+                else:
+                    stats["easy"] += 1
+
+                final_neg.append( int(neg_id) )
+                stats["total"] += 1                      
+
     assert len(final_neg) == len(a_ids), (
-    f"build_negatives mismatch: "
-    f"anchors={len(a_ids)}, "
-    f"negatives={len(final_neg)}"
-)
+            f"build_negatives mismatch: "
+            f"anchors={len(a_ids)}, "
+            f"negatives={len(final_neg)}"
+        )
 
     return final_neg
 
@@ -410,7 +441,7 @@ class AnchorPositiveDataset(Dataset):
         return (int(self.a_ids[idx]), int(self.p_ids[idx]))
 
 class TripletBatchCollator():
-    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None):
+    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10):
         self.all_traces=all_traces
         self.neg_ids=neg_ids
         self.id_2_label=id_2_label
@@ -422,7 +453,8 @@ class TripletBatchCollator():
         classes=sorted(set(id_2_label.values()))
 
         self.valid_neg_ids_by_class={class_id: [idx for idx in neg_ids if (id_2_label[idx]!=class_id)] for class_id in classes} 
-        self.legacy_label_2_id = (legacy_label_2_id)   
+        self.legacy_label_2_id = (legacy_label_2_id)
+        self.mixed_violation_prob=mixed_violation_prob   
 
     def __call__(self, batch):
         a_ids=[item[0] for item in batch]
@@ -438,7 +470,8 @@ class TripletBatchCollator():
             negative_mode=self.negative_mode,
             valid_neg_ids_by_class=self.valid_neg_ids_by_class,
             stats=self.stats,
-            legacy_label_2_id=self.legacy_label_2_id
+            legacy_label_2_id=self.legacy_label_2_id,
+            mixed_violation_prob=self.mixed_violation_prob
         )
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
@@ -477,7 +510,8 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     return avg_loss  
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
-                    learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None):
+                    learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
+                    mixed_violation_prob=0.10):
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -503,7 +537,9 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             model.eval()
             all_sims=build_similarities(model, all_traces_tensor)
 
-        collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, all_sims, negative_mode=negative_mode, legacy_label_2_id=legacy_label_2_id)
+        collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, 
+                                        all_sims, negative_mode=negative_mode, 
+                                        legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
         loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
@@ -520,8 +556,8 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             f"hard={stats['hard']/total:.3f} | "
             f"semihard={stats['semihard']/total:.3f} | "
             f"easy={stats['easy']/total:.3f} | "
-            f"legacy_candidate={stats['legacy_candidate']/total:.3f} | "
-            f"legacy_fallback={stats['legacy_fallback']/total:.3f} | "
+            f"mixed_violation={stats['mixed_violation']/total:.3f} | "
+            f"mixed_random={stats['mixed_random_valid']/total:.3f} | "
             f"same_class={stats['same_class_negative']/total:.3f}"
         )
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
