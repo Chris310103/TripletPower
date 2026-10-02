@@ -7,7 +7,7 @@ import numpy as np
 from typing import Literal, Optional, Tuple, Union, Dict, Any
 from pathlib import Path
 from typing import Literal, Optional, Tuple, Union, Dict, Any
-
+from .loadData import get_labels
 
 def get_trace_window(trace_window_str):
     tmp = trace_window_str.split("_")
@@ -103,7 +103,7 @@ def load_from_tp_(data_path, attack_size, which_one="train"):
     if which_one=="train":
         x_n=traces[:train_size]
         p_n=pt[:train_size]
-        label_n=np.zeros(len(x_n))
+        label_n = get_labels(p_n, key[2], 2, "HW")
 
         train_data_dict = {
             "X_train": x_n,
@@ -115,7 +115,7 @@ def load_from_tp_(data_path, attack_size, which_one="train"):
     if which_one=="test":
         x_n=traces[-attack_size:]
         p_n=pt[-attack_size:]
-        label_n=np.zeros(len(x_n))
+        label_n = get_labels(p_n, key[2], 2, "HW")
 
         test_data_dict = {
                     "X_test": x_n,
