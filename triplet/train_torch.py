@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument("--sample_num_limit", type=int, default=300)
     parser.add_argument("--selected_indices_path", type=str, default=None)
     parser.add_argument("--trace_num_max", type=int, default=500)
-    parser.add_argument("--tracewindow", type=tuple, default=(0,700))
+    parser.add_argument("--tracewindow", type=int, nargs=2, default=(0,700))
     parser.add_argument("--num_averaged", type=int, default=100)
     parser.add_argument('--leakage_model', type=str, choices=['HW', 'ID'], default="HW")
     parser.add_argument('--n_traces', type=int, default=2000)
