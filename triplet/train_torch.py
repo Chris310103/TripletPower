@@ -28,9 +28,11 @@ def parse_args():
     parser.add_argument("--sample_num_limit", type=int, default=300)
     parser.add_argument("--selected_indices_path", type=str, default=None)
     parser.add_argument("--trace_num_max", type=int, default=500)
+    parser.add_argument("--tracewindow", type=tuple, default=(0,700))
     parser.add_argument("--num_averaged", type=int, default=100)
     parser.add_argument('--leakage_model', type=str, choices=['HW', 'ID'], default="HW")
     parser.add_argument('--n_traces', type=int, default=2000)
+    parser.add_argument("--attack_size", type=int, default=10000)
     parser.add_argument('--alpha_value', type=float, default=0.5)
     parser.add_argument('--n_neighbors', type=int, default=10)
     parser.add_argument('--seed', type=int, default=42)
@@ -109,8 +111,8 @@ def main():
         print("Number of fixed indices:", len(selected_indices)) 
 
     x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label = \
-        getCLSidDict(data_path=data_path, n_traces=n_traces,\
-        sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, selected_indices=selected_indices)
+        getCLSidDict(data_path=data_path, n_traces=n_traces, attack_size=args.attack_size,\
+        sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, selected_indices=selected_indices, tracewindow=args.tracewindow)
 
     print("All N profiling traces:", x_n.shape)
     print("Triplet subset:", x_limited.shape)
@@ -180,8 +182,8 @@ def main():
     # =========================================================================
     # Load Attack data
     # =========================================================================
-    data_dict=load_dataset(data_path=data_path, which_one="test")
-    attack_traces, attack_label, attack_plaintext, attack_real_key=dissemble_data_dict(data_dict=data_dict, tracewindow=(0, 700), which_one="test")
+    data_dict=load_dataset(data_path=data_path, attack_size=args.attack_size, which_one="test")
+    attack_traces, attack_label, attack_plaintext, attack_real_key=dissemble_data_dict(data_dict=data_dict, tracewindow=args.tracewindow, which_one="test")
 
     # =========================================================================
     # Attack

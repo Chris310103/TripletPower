@@ -86,10 +86,12 @@ def limit_per_class(x,  labels, sample_num_limit: int,):
 
     return x_limited, labels_limited, label_2_id, id_2_label, selected_indices
 
-def getCLSidDict(data_path, n_traces, sample_num_limit, leakage_model, target_byte=2, selected_indices=None):
-
-    data_dict=load_dataset(str(data_path), which_one="train")
-    x,ascad_label,plain_text, key=dissemble_data_dict(data_dict, tracewindow=(0, 700), which_one="train")
+def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_model, target_byte=2, selected_indices=None, tracewindow=(0, 700)):
+    if str(data_path).endswith(".npz"):
+        data_dict = load_dataset(str(data_path), attack_size=attack_size, which_one="train")
+    else:
+        data_dict=load_dataset(str(data_path), which_one="train")
+    x,ascad_label,plain_text, key=dissemble_data_dict(data_dict, tracewindow=tracewindow, which_one="train")
 
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
@@ -140,10 +142,17 @@ def cosine_triplet_loss(a_embed: torch.Tensor, p_embed: torch.Tensor, n_embed: t
 
     return loss.mean()
 
-def build_similarities(model, traces: torch.Tensor):
+def build_similarities(model, traces: torch.Tensor, batch_size=1024):
     with torch.no_grad():
-        embs=model(traces)
+        embs_list=[]
+        num_traces=traces.size(0)
 
+        for i in range(0, num_traces, batch_size):
+            batch_traces=traces[i:i+batch_size]
+            batch_embs=model(batch_traces)
+            embs_list.append(batch_embs)
+
+        embs=torch.cat(embs_list, dim=0)
         embs=F.normalize(embs, p=2, dim=-1)
         all_sims=torch.matmul(embs, embs.T)
 
@@ -498,9 +507,9 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         positive=model(p)
         negative=model(n)
 
-        anchor = torch.nn.functional.normalize(model(a), p=2, dim=1)
-        positive = torch.nn.functional.normalize(model(p), p=2, dim=1)
-        negative = torch.nn.functional.normalize(model(n), p=2, dim=1)
+        anchor = torch.nn.functional.normalize(anchor, p=2, dim=1)
+        positive = torch.nn.functional.normalize(positive, p=2, dim=1)
+        negative = torch.nn.functional.normalize(negative, p=2, dim=1)
 
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
@@ -524,7 +533,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     neg_ids=list(set(a_ids)| set(p_ids))
 
-    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, weight_decay=1e-4, momentum=0.0, centered=False)
+    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
     dataset=AnchorPositiveDataset(a_ids, p_ids)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
@@ -577,11 +586,11 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
             tqdm.write(f"Saved checkpoint to: {ckpt_path}")
 
-        # if (epoch+1) % 40 == 0:
-        #     learning_rate /= 2
+        if (epoch+1) % 40 == 0:
+            learning_rate /= 2
 
-        #     for param in optimizer.param_groups:
-        #         param["lr"]=learning_rate
+            for param in optimizer.param_groups:
+                param["lr"]=learning_rate
 
         model.eval()
         with torch.no_grad():
@@ -620,24 +629,26 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     return model, loss_log
 
-def extract_embeddings(traces, model) -> np.ndarray:
+def extract_embeddings(traces, model, batch_size:int=1024) -> np.ndarray:
     model.eval()
 
-    traces=torch.as_tensor(traces, dtype=torch.float32)
+    traces=torch.as_tensor(traces, dtype=torch.float32,)
 
     if traces.ndim==2:
         traces=traces.unsqueeze(-1)
 
     device=next(model.parameters()).device
-    traces=traces.to(device)
+    num_traces=traces.size(0)
+    embs_list=[]
 
     with torch.no_grad():
-        
-        embed=model(traces)
-        embed=torch.nn.functional.normalize(embed, p=2, dim=1)
-        embed=embed.detach().cpu().numpy()
+        for i in range(0, num_traces, batch_size):
+            batch_traces=traces[i:i+batch_size].to(device)
+            embed=model(batch_traces)
+            embed=torch.nn.functional.normalize(embed, p=2, dim=1)
+            embs_list.append(embed.cpu())
 
-    return embed
+    return torch.cat(embs_list, dim=0).numpy()
 
 def train_knn(model,traces,labels:np.ndarray,n_neighbors=10,leakage_model="HW"):
     embeddings=extract_embeddings(traces,model)

@@ -7,6 +7,7 @@ import numpy as np
 from typing import Literal, Optional, Tuple, Union, Dict, Any
 from pathlib import Path
 from typing import Literal, Optional, Tuple, Union, Dict, Any
+from loadData import get_labels
 
 
 def get_trace_window(trace_window_str):
@@ -91,14 +92,48 @@ def load_from_npz(data_path):
     else:
         raise ValueError(f"Unsupported NPZ file name: {data_name}. It should contain 'train' or 'test' in the filename.")
     
+def load_from_tp_(data_path, attack_size, which_one="train"):
+    path=Path(data_path)
+    data=np.load(path)
 
+    traces=data["power_trace"]
+    pt=data["plain_text"]
+    key=data["key"]
+    train_size=200000-attack_size
 
-def load_dataset(data_path, which_one="train"):
+    if which_one=="train":
+        x_n=traces[:train_size]
+        p_n=pt[:train_size]
+        label_n=np.zeros(len(x_n))
+
+        train_data_dict = {
+            "X_train": x_n,
+            "y_train": label_n,
+            "plaintext": p_n,
+            "key": key,
+        }
+        return train_data_dict
+    if which_one=="test":
+        x_n=traces[-attack_size:]
+        p_n=pt[-attack_size:]
+        label_n=np.zeros(len(x_n))
+
+        test_data_dict = {
+                    "X_test": x_n,
+                    "y_test": label_n,
+                    "plaintext": p_n,
+                    "key": key
+                }
+        return test_data_dict
+    else:
+        raise ValueError(f"Unsupported value for 'which_one': {which_one}. Use 'train' or 'test'.") 
+
+def load_dataset(data_path, attack_size, which_one="train"):
     """ function to load the dataset from the given path. It supports loading from HDF5 or NPZ files. """
     if data_path.endswith(".h5"):
         data_dict = load_from_hdf5(data_path, which_one=which_one)
     elif data_path.endswith(".npz"):
-        data_dict = load_from_npz(data_path)
+        data_dict = load_from_npz(data_path, attack_size=attack_size, which_one=which_one)
     else:
         raise ValueError(f"Unsupported file format: {data_path}. Use .h5 or .npz.")
 
