@@ -93,8 +93,7 @@ def main():
             sbox_out = Sbox[pt ^ guess]
             hw = HW_byte[sbox_out]
 
-            p = probs[idx, hw] / len(hw_mapping[hw])
-            scores[guess] += np.log(p + 1e-40)
+            scores[guess] += probs[idx, hw]
 
         ranked = np.argsort(scores)[::-1]
         rank = int(np.where(ranked == real_key)[0][0])
