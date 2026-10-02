@@ -132,7 +132,7 @@ def load_dataset(data_path, attack_size, which_one="train"):
     if data_path.endswith(".h5"):
         data_dict = load_from_hdf5(data_path, which_one=which_one)
     elif data_path.endswith(".npz"):
-        data_dict = load_from_npz(data_path, attack_size=attack_size, which_one=which_one)
+        data_dict = load_from_tp_(data_path, attack_size=attack_size, which_one=which_one)
     else:
         raise ValueError(f"Unsupported file format: {data_path}. Use .h5 or .npz.")
 
