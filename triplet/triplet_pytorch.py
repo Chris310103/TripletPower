@@ -400,23 +400,23 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
                 neg_id = choose_random_valid( anchor_class )
                 stats[ "mixed_random_valid" ] += 1
-                neg_sim = all_sims[
-                        a_id,
-                        neg_id
-                    ]
+            neg_sim = all_sims[
+                    a_id,
+                    neg_id
+                ]
 
-                if neg_sim >= pos_sim:
-                    stats["hard"] += 1
+            if neg_sim >= pos_sim:
+                stats["hard"] += 1
 
-                elif ( neg_sim > pos_sim - alpha_value ):
+            elif ( neg_sim > pos_sim - alpha_value ):
 
-                    stats["semihard"] += 1
+                stats["semihard"] += 1
 
-                else:
-                    stats["easy"] += 1
+            else:
+                stats["easy"] += 1
 
-                final_neg.append( int(neg_id) )
-                stats["total"] += 1                      
+            final_neg.append( int(neg_id) )
+            stats["total"] += 1                      
 
     assert len(final_neg) == len(a_ids), (
             f"build_negatives mismatch: "
