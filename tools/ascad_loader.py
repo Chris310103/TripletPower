@@ -7,7 +7,6 @@ import numpy as np
 from typing import Literal, Optional, Tuple, Union, Dict, Any
 from pathlib import Path
 from typing import Literal, Optional, Tuple, Union, Dict, Any
-from loadData import get_labels
 
 
 def get_trace_window(trace_window_str):
