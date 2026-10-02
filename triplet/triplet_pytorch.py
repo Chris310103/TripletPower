@@ -520,7 +520,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     neg_ids=list(set(a_ids)| set(p_ids))
 
-    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
+    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, weight_decay=1e-4, momentum=0.0, centered=False)
     dataset=AnchorPositiveDataset(a_ids, p_ids)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
@@ -540,7 +540,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collator_fn, drop_last=True)
 
         loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
         stats = collator_fn.stats
@@ -573,11 +573,11 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
             tqdm.write(f"Saved checkpoint to: {ckpt_path}")
 
-        if (epoch+1) % 40 == 0:
-            learning_rate /= 2
+        # if (epoch+1) % 40 == 0:
+        #     learning_rate /= 2
 
-            for param in optimizer.param_groups:
-                param["lr"]=learning_rate
+        #     for param in optimizer.param_groups:
+        #         param["lr"]=learning_rate
 
         model.eval()
         with torch.no_grad():
