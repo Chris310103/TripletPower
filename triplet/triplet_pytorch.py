@@ -498,6 +498,10 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         positive=model(p)
         negative=model(n)
 
+        anchor = torch.nn.functional.normalize(model(a), p=2, dim=1)
+        positive = torch.nn.functional.normalize(model(p), p=2, dim=1)
+        negative = torch.nn.functional.normalize(model(n), p=2, dim=1)
+
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
         loss.backward()
@@ -630,6 +634,7 @@ def extract_embeddings(traces, model) -> np.ndarray:
     with torch.no_grad():
         
         embed=model(traces)
+        embed=torch.nn.functional.normalize(embed, p=2, dim=1)
         embed=embed.detach().cpu().numpy()
 
     return embed
