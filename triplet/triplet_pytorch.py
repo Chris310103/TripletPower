@@ -386,7 +386,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             neg_id=None
 
             if use_violation:
-                possible_ids=np.where((all_sims[a_id]+alpha_value)>pos_sim)[[0]]
+                possible_ids=np.where((all_sims[a_id]+alpha_value)>pos_sim)[0]
                 possible_ids=intersect(possible_ids, neg_ids)
                 possible_ids=[idx for idx in possible_ids if id_2_label[idx] != anchor_class]
 
