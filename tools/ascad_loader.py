@@ -104,7 +104,7 @@ def load_from_tp_(data_path, attack_size, target_byte=2, leakage_model="HW", whi
         x_n=traces[:train_size]
         p_n=pt[:train_size]
 
-    if which_one=="test":
+    elif which_one=="test":
         x_n=traces[train_size:]
         p_n=pt[train_size:]
     else:
