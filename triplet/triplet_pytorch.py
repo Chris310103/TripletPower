@@ -122,10 +122,19 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
 
     labels_n=get_labels(plain_text_n, key_byte, target_byte, leakage_model=leakage_model)
 
-    ascad_label = ascad_label[selected_n_indices]
-    ascad_hw=np.array([bin(int(v)).count('1') for v in ascad_label], dtype=np.int64)
-    match_rate=np.mean(ascad_hw==labels_n)
+    stored_label = ascad_label[selected_n_indices]
 
+    if str(data_path).endswith(".h5"):
+        stored_hw = np.array(
+        [bin(int(v)).count("1") for v in stored_label],
+        dtype=np.int64
+        )
+    else:
+        stored_hw = stored_label.astype(np.int64)
+
+    match_rate = np.mean(stored_hw == labels_n)
+
+    print("Stored-label vs computed-HW match:", match_rate)
     print( "=================================" )
     print( "ASCAD stored-label vs computed-HW match:", match_rate)
 

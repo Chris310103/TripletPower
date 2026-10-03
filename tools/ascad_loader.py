@@ -91,48 +91,43 @@ def load_from_npz(data_path):
     else:
         raise ValueError(f"Unsupported NPZ file name: {data_name}. It should contain 'train' or 'test' in the filename.")
     
-def load_from_tp_(data_path, attack_size, which_one="train"):
+def load_from_tp_(data_path, attack_size, target_byte=2, leakage_model="HW", which_one="train"):
     path=Path(data_path)
     data=np.load(path)
 
     traces=data["power_trace"]
     pt=data["plain_text"]
     key=data["key"]
-    train_size=200000-attack_size
+    train_size=len(traces)-attack_size
 
     if which_one=="train":
         x_n=traces[:train_size]
         p_n=pt[:train_size]
-        label_n = get_labels(p_n, key[2], 2, "HW")
 
-        train_data_dict = {
-            "X_train": x_n,
-            "y_train": label_n,
-            "plaintext": p_n,
-            "key": key,
-        }
-        return train_data_dict
     if which_one=="test":
-        x_n=traces[-attack_size:]
-        p_n=pt[-attack_size:]
-        label_n = get_labels(p_n, key[2], 2, "HW")
-
-        test_data_dict = {
-                    "X_test": x_n,
-                    "y_test": label_n,
-                    "plaintext": p_n,
-                    "key": key
-                }
-        return test_data_dict
+        x_n=traces[train_size:]
+        p_n=pt[train_size:]
     else:
         raise ValueError(f"Unsupported value for 'which_one': {which_one}. Use 'train' or 'test'.") 
 
-def load_dataset(data_path, attack_size, which_one="train"):
+    labels = get_labels(p_n, key[target_byte], target_byte, leakage_model)
+
+
+    prefix = "train" if which_one == "train" else "test"
+
+    return {
+        f"X_{prefix}": x_n,
+        f"y_{prefix}": labels,
+        "plaintext": p_n,
+        "key": key
+    }
+
+def load_dataset(data_path, attack_size=10000, target_byte=2, leakage_model="HW", which_one="train"):
     """ function to load the dataset from the given path. It supports loading from HDF5 or NPZ files. """
     if data_path.endswith(".h5"):
         data_dict = load_from_hdf5(data_path, which_one=which_one)
     elif data_path.endswith(".npz"):
-        data_dict = load_from_tp_(data_path, attack_size=attack_size, which_one=which_one)
+        data_dict = load_from_tp_(data_path, attack_size=attack_size, target_byte=target_byte, leakage_model=leakage_model, which_one=which_one)
     else:
         raise ValueError(f"Unsupported file format: {data_path}. Use .h5 or .npz.")
 
