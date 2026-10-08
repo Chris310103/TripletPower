@@ -26,30 +26,34 @@ def tf21_cosine_triplet_loss(X):
     positive_sim, negative_sim = X
     return K.maximum(0.0, negative_sim - positive_sim + float(legacy_triplet.alpha_value))
 
-
 legacy_triplet.identity_loss = tf21_identity_loss
 legacy_triplet.cosine_triplet_loss = tf21_cosine_triplet_loss
 
-DATA_PATH = "../Target 1/X1_K1_200k_L11.npz"
-RUN_NAME = "tp_hw_N2000_ep5_tensorflow_legacy"
-OUTPUT_ROOT = Path("Output/triplet_tensorflow/profiling")
+DATA_PATH="../Target 1/X1_K1_200k_L11.npz"
+RUN_NAME="tp_hw_N500_ep100_tensorflow_legacy"
+OUTPUT_ROOT=Path("Output/triplet_tensorflow/profiling")
+
+N_TRACES=500
+ATTACK_SIZE=10000
+EPOCHS=100
+U=300
+
+TARGET_BYTE=2
+LEAKAGE_MODEL="HW"
+
+TRACE_START=0
+TRACE_END=700
+
+N_NEIGHBORS=10
+
+TRACE_NUM_MAX=5000
+NUM_AVERAGED=5
+
+SEED=42
+
 RUN_ROOT = OUTPUT_ROOT / RUN_NAME
 MODEL_DIR = RUN_ROOT / "feat_model"
 RANK_DIR = RUN_ROOT / "ranking"
-
-N_TRACES = 2000
-ATTACK_SIZE = 10000
-EPOCHS = 5
-U = 300
-TARGET_BYTE = 2
-LEAKAGE_MODEL = "HW"
-TRACE_START = 1800
-TRACE_END = 2800
-N_NEIGHBORS = 10
-TRACE_NUM_MAX = 500
-NUM_AVERAGED = 5
-SEED = 42
-
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 RANK_DIR.mkdir(parents=True, exist_ok=True)
 
