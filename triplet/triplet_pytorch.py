@@ -516,10 +516,6 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         positive=model(p)
         negative=model(n)
 
-        anchor = torch.nn.functional.normalize(anchor, p=2, dim=1)
-        positive = torch.nn.functional.normalize(positive, p=2, dim=1)
-        negative = torch.nn.functional.normalize(negative, p=2, dim=1)
-
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
         loss.backward()
@@ -562,7 +558,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collator_fn, drop_last=True)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
         loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
         stats = collator_fn.stats
@@ -654,7 +650,6 @@ def extract_embeddings(traces, model, batch_size:int=1024) -> np.ndarray:
         for i in range(0, num_traces, batch_size):
             batch_traces=traces[i:i+batch_size].to(device)
             embed=model(batch_traces)
-            embed=torch.nn.functional.normalize(embed, p=2, dim=1)
             embs_list.append(embed.cpu())
 
     return torch.cat(embs_list, dim=0).numpy()
