@@ -132,6 +132,38 @@ def main():
     model=model.to(device)
 
     # =========================================================================
+    # Sanity Check 
+    # =========================================================================
+    xt = torch.as_tensor(
+        x_limited,
+        dtype=torch.float32,
+        device=device
+    ).unsqueeze(-1)
+
+    model.eval()
+
+    with torch.no_grad():
+        emb = model(xt)
+        norms = torch.linalg.vector_norm(emb, dim=1)
+
+    print(
+        "[INIT INPUT]",
+        "min=", xt.min().item(),
+        "max=", xt.max().item(),
+        "mean=", xt.mean().item(),
+        "std=", xt.std().item()
+    )
+
+    print(
+        "[INIT EMB]",
+        "mean_norm=", norms.mean().item(),
+        "min_norm=", norms.min().item(),
+        "max_norm=", norms.max().item(),
+        "zero_fraction=",
+        (norms < 1e-8).float().mean().item()
+    )
+
+    # =========================================================================
     # Train Triplet network
     # =========================================================================
     if legacy_map:
