@@ -398,6 +398,11 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             stats["total"] += 1
             stats["random_valid"] += 1
 
+        # =========================================================================
+        # MODE D:
+        # Mixed Valid
+        # =========================================================================
+
         elif negative_mode=="mixed_valid":
             use_violation=(random.random()<mixed_violation_prob)
 

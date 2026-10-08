@@ -37,9 +37,6 @@ def parse_args():
     parser.add_argument('--n_neighbors', type=int, default=10)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
-    parser.add_argument("--legacy_negative_map", action="store_true", help=("Reproduce the uploaded legacy TensorFlow "
-                        "source behavior by passing label_2_id"
-                        "(class -> IDs) into negative mining."),)
     parser.add_argument("--negative_mode", type=str, 
                     choices=[ "current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"], default="current",)
     parser.add_argument("--mixed_violation_prob", type=float, default=0.10,)
@@ -60,13 +57,12 @@ def get_params(args):
     n_neighbors=args.n_neighbors
     seed=args.seed
     lr=args.learning_rate
-    legacy_map=args.legacy_negative_map
 
-    return data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit,  leakage_model, n_traces, alpha_value, n_neighbors, seed, lr, legacy_map
+    return data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit,  leakage_model, n_traces, alpha_value, n_neighbors, seed, lr
 
 def main():
     args=parse_args()
-    data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit, leakage_model, n_traces, alpha_value, n_neighbors, seed, lr, legacy_map=\
+    data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit, leakage_model, n_traces, alpha_value, n_neighbors, seed, lr=\
         get_params(args)
 
     output_root=Path("Output/triplet_pytorch/profiling")
@@ -166,22 +162,6 @@ def main():
     # =========================================================================
     # Train Triplet network
     # =========================================================================
-    if legacy_map:
-        negative_map = label_2_id
-
-        print(
-            "[EXPERIMENT] Negative mining mapping: "
-            "LEGACY label_2_id (class -> trace IDs)"
-        )
-
-    else:
-        negative_map = id_2_label
-
-        print(
-            "[EXPERIMENT] Negative mining mapping: "
-            "CORRECT id_2_label (trace ID -> class)"
-        )
-
     model, loss_log = train_tripletpower(
         model=model,
         all_traces=x_limited,
