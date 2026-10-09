@@ -100,51 +100,58 @@ final_model = legacy_triplet.train(opts, x_train, train_y, model_dir_string)
 print("Training seconds:", time.time() - start)
 
 # ============================================================
-# Profiling embeddings + kNN
+# Profiling embeddings
 # ============================================================
 x_train_3d=x_train.reshape((len(x_train), x_train.shape[1], 1))
 train_embeddings=final_model.predict(x_train_3d, batch_size=256, verbose=1)
 
-train_norms=np.linalg.norm(train_embeddings, axis=1)
 print("Training embedding shape:", train_embeddings.shape)
-print("Training embedding norm mean:", float(train_norms.mean()))
-print("Training zero embedding fraction:", float(np.mean(train_norms < 1e-8)))
 
-knn=KNeighborsClassifier(n_neighbors=N_NEIGHBORS, weights="distance", metric="cosine", algorithm="brute")
+# ============================================================
+# Missing-class dummy embeddings
+# ============================================================
+needed_classes=set(range(9))
+
+if needed_classes != set(train_y):
+    missing_classes=needed_classes-set(train_y)
+    missing_embeddings=[]
+    missing_labels=[]
+
+    for label in missing_classes:
+        missing_labels.append(label)
+        missing_embeddings.append([0]*train_embeddings.shape[1])
+
+    train_embeddings=np.concatenate((train_embeddings, missing_embeddings), axis=0)
+    train_y=np.concatenate((train_y, missing_labels), axis=0)
+
+# ============================================================
+# Train kNN
+# ============================================================
+knn=KNeighborsClassifier(n_neighbors=N_NEIGHBORS, weights="distance", p=2, metric="cosine", algorithm="brute")
 knn.fit(train_embeddings, train_y)
 
 print("KNN classes:", knn.classes_)
+
+# ============================================================
+# Load BEST feature extractor for attack
+# ============================================================
+best_model_path=MODEL_DIR/"best_model.h5"
+attack_model=tf.keras.models.load_model(str(best_model_path))
+
+print("Loaded attack feature extractor:", best_model_path)
 
 # ============================================================
 # Attack embeddings
 # ============================================================
 x_attack_3d=x_attack.reshape((len(x_attack), x_attack.shape[1], 1))
-attack_embeddings=final_model.predict(x_attack_3d, batch_size=256, verbose=1)
+attack_embeddings=attack_model.predict(x_attack_3d, batch_size=256, verbose=1)
 
+# ============================================================
+# Attack accuracy
+# ============================================================
 attack_pred=knn.predict(attack_embeddings)
 attack_acc=accuracy_score(attack_expected, attack_pred)
 
-print("TensorFlow TripletPower attack classification accuracy:", attack_acc)
-
-# ============================================================
-# kNN probabilities
-# ============================================================
-needed_classes=set(range(9))
-missing_classes=needed_classes-set(train_y.astype(int))
-
-if missing_classes:
-    print("Missing HW classes:", sorted(missing_classes))
-    missing_embeddings=np.zeros((len(missing_classes), train_embeddings.shape[1]), dtype=train_embeddings.dtype)
-    missing_labels=np.asarray(sorted(missing_classes), dtype=train_y.dtype)
-    train_embeddings=np.concatenate((train_embeddings, missing_embeddings), axis=0)
-    train_y=np.concatenate((train_y, missing_labels), axis=0)
-
-knn=KNeighborsClassifier(n_neighbors=N_NEIGHBORS, weights="distance", metric="cosine", algorithm="brute")
-knn.fit(train_embeddings, train_y)
-
-print("KNN classes:", knn.classes_)
-attack_pred=knn.predict(attack_embeddings)
-attack_acc=accuracy_score(attack_expected, attack_pred)
 print("TensorFlow TripletPower attack classification accuracy:", attack_acc)
 
 # ============================================================
@@ -167,8 +174,3 @@ if len(zero_idx) > 0:
     print("First rank-0 trace:", int(zero_idx[0] + 1))
 else:
     print("Never reached rank 0.")
-
-np.savez(RUN_ROOT / "summary.npz", attack_accuracy=np.array([attack_acc]), min_rank=np.array([rank_curve.min()]), final_rank=np.array([rank_curve[-1]]))
-
-print("TensorFlow TripletPower pipeline finished.")
-print("Results:", RUN_ROOT)
