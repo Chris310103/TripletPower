@@ -171,7 +171,7 @@ def intersect(a,b):
     return list(set(a) & set(b))
 
 def build_negatives(a_ids, p_ids, neg_ids, id_2_label, 
-                alpha_value, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
+                alpha_mine, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
                 stats=None, legacy_label_2_id=None, mixed_violation_prob=0.10):
     if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"}:
         raise ValueError(f"unsupported negative_mode: {negative_mode}")
@@ -205,7 +205,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             pos_sim = all_sims[ a_id, p_id, ]
 
-            possible_ids = np.where( ( all_sims[a_id] + alpha_value ) > pos_sim )[0]
+            possible_ids = np.where( ( all_sims[a_id] + alpha_mine ) > pos_sim )[0]
 
             possible_ids = intersect( neg_ids, possible_ids, )
 
@@ -250,7 +250,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             if neg_sim >= pos_sim:
                 stats["hard"] += 1
 
-            elif ( neg_sim > pos_sim - alpha_value ):
+            elif ( neg_sim > pos_sim - alpha_mine):
                 stats["semihard"] += 1
 
             else:
@@ -300,7 +300,8 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             stats["total"] += 1
             stats["random_valid"] += 1
-            stats["mixed_random_valid"]+=1
+            if negative_mode == "mixed_valid":
+                stats["mixed_random_valid"]+=1
 
         return final_neg    
 
@@ -316,7 +317,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
         # CURRENT IMPLEMENTATION
         # ========================================================
         if negative_mode=="current":
-            possible_ids=np.where((all_sims[a_id]+alpha_value) > pos_sim)[0]
+            possible_ids=np.where((all_sims[a_id]+alpha_mine) > pos_sim)[0]
             possible_ids=intersect(possible_ids, neg_ids)
 
             appended=False
@@ -357,7 +358,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
         # ========================================================
         elif(negative_mode=="true_semihard"):
             similarities=all_sims[a_id]
-            possible_ids=np.where(((similarities+alpha_value)>pos_sim) & (similarities < pos_sim))[0]
+            possible_ids=np.where(((similarities+alpha_mine)>pos_sim) & (similarities < pos_sim))[0]
 
             possible_ids=intersect(possible_ids, neg_ids)
 
@@ -409,7 +410,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             neg_id=None
 
             if use_violation:
-                possible_ids=np.where((all_sims[a_id]+alpha_value)>pos_sim)[0]
+                possible_ids=np.where((all_sims[a_id]+alpha_mine)>pos_sim)[0]
                 possible_ids=intersect(possible_ids, neg_ids)
                 possible_ids=[idx for idx in possible_ids if id_2_label[idx] != anchor_class]
 
@@ -431,7 +432,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             if neg_sim >= pos_sim:
                 stats["hard"] += 1
 
-            elif ( neg_sim > pos_sim - alpha_value ):
+            elif ( neg_sim > pos_sim - alpha_mine ):
 
                 stats["semihard"] += 1
 
@@ -464,11 +465,11 @@ class AnchorPositiveDataset(Dataset):
         return (int(self.a_ids[idx]), int(self.p_ids[idx]))
 
 class TripletBatchCollator():
-    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10):
+    def __init__(self, all_traces, neg_ids, id_2_label, alpha_mine=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10):
         self.all_traces=all_traces
         self.neg_ids=neg_ids
         self.id_2_label=id_2_label
-        self.alpha_value=alpha_value
+        self.alpha_mine=alpha_mine
         self.all_sims=all_sims 
         self.negative_mode=negative_mode
         self.stats=defaultdict(int)
@@ -488,7 +489,7 @@ class TripletBatchCollator():
             p_ids=p_ids,
             neg_ids=self.neg_ids,
             id_2_label=self.id_2_label,
-            alpha_value=self.alpha_value,
+            alpha_mine=self.alpha_mine,
             all_sims=self.all_sims,
             negative_mode=self.negative_mode,
             valid_neg_ids_by_class=self.valid_neg_ids_by_class,
@@ -552,8 +553,11 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     return avg_loss, diagnostics
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
-                    learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
+                    learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
                     mixed_violation_prob=0.10):
+    if alpha_mine is None:
+        alpha_mine=alpha_value
+
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -579,7 +583,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             model.eval()
             all_sims=build_similarities(model, all_traces_tensor)
 
-        collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_value, 
+        collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_mine, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
@@ -600,11 +604,12 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             f"easy={stats['easy']/total:.3f} | "
             f"fallback_valid={stats['fallback_random_valid']/total:.3f} | "
             f"mixed_violation={stats['mixed_violation']/total:.3f} | "
+            f"mixed_fallback={stats['mixed_violation_fallback']/total:.3f} | "
             f"mixed_random={stats['mixed_random_valid']/total:.3f} | "
             f"same_class={stats['same_class_negative']/total:.3f}"
         )
-        tqdm.write(f"[epoch {epoch}] similarity | pos={diagnostics['mean_pos_sim']:.4f} | neg={diagnostics['mean_neg_sim']:.4f} \
-                   | gap={diagnostics['mean_gap']:.4f} | violation={diagnostics['violation_fraction']:.3f}")
+
+        tqdm.write(f"[epoch {epoch}] similarity | pos={diagnostics['mean_pos_sim']:.4f} | neg={diagnostics['mean_neg_sim']:.4f} | gap={diagnostics['mean_gap']:.4f} | violation={diagnostics['violation_fraction']:.3f}")
         
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
