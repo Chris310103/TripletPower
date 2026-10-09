@@ -87,6 +87,13 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
 
     real_key = key[target_byte]
     plaintext = plaintext[:, target_byte]
+    if trace_num_max > plaintext.shape[0]:
+                raise ValueError(f"trace_num_max={trace_num_max} exceeds available attack traces={plaintext.shape[0]}")
+    rank_rng=random.Random(12345)
+
+    rank_runs=np.zeros((num_averaged, trace_num_max))
+    margin_runs=np.zeros((num_averaged, trace_num_max))
+    best_wrong_runs=np.zeros((num_averaged, trace_num_max), dtype=np.int16)
 
     # attack multiples times for average
     for time in tqdm(range(num_averaged)):
@@ -96,7 +103,7 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
         #         ## customized by HL
         #         print(f"random_index shape {len(random_index)}, max value {max(random_index)}, min value {min(random_index)}")
 
-        random.shuffle(random_index)
+        rank_rng.shuffle(random_index)
         random_index = random_index[0:trace_num_max]
 
         #         ## customized by HL
@@ -128,14 +135,28 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
         #         ## customized by HL
         #         print(f"score_mat {score_mat}")
 
-        for i in range(0, trace_num_max):
-            log_likelihood = np.sum(score_mat[0:i+1, :], axis=0)
-            ranked = np.argsort(log_likelihood)[::-1]
-            guessing_entropy[time, i] = list(ranked).index(real_key)
-            if list(ranked).index(real_key) == 0:
-                success_flag[time, i] = 1
+        for i in range(trace_num_max):
+            log_likelihood=np.sum(score_mat[0:i+1, :], axis=0)
+            ranked=np.argsort(log_likelihood)[::-1]
+
+            rank=list(ranked).index(real_key)
+            guessing_entropy[time, i]=rank
+            rank_runs[time, i]=rank
+
+            wrong_scores=log_likelihood.copy()
+            wrong_scores[real_key]=-np.inf
+            best_wrong=int(np.argmax(wrong_scores))
+
+            best_wrong_runs[time, i]=best_wrong
+            margin_runs[time, i]=log_likelihood[real_key]-wrong_scores[best_wrong]
+
+            if rank==0:
+                success_flag[time, i]=1
 
     guessing_entropy = np.mean(guessing_entropy, axis=0)
+    success_rate=np.mean(success_flag, axis=0)
+    mean_margin=np.mean(margin_runs, axis=0)
+    median_rank=np.median(rank_runs, axis=0)
 
     # define the saving path
     os.makedirs(rank_root, exist_ok=True)
@@ -154,8 +175,17 @@ def ranking_curve(preds, key, plaintext, target_byte, rank_root, leakage_model='
 
     # saving the ranking raw data
     raw_save_path = os.path.join(rank_root, 'ranking_raw_data.npz')
-    x = list(range(len(guessing_entropy)))
-    np.savez(raw_save_path, x=x, y=guessing_entropy)
+    np.savez(
+        raw_save_path,
+        x=np.arange(trace_num_max),
+        y=guessing_entropy,
+        rank_runs=rank_runs,
+        median_rank=median_rank,
+        success_rate=success_rate,
+        margin_runs=margin_runs,
+        mean_margin=mean_margin,
+        best_wrong_runs=best_wrong_runs,
+    )
     print('[LOG] -- ranking raw data save to path: ', raw_save_path)
 
     return guessing_entropy
