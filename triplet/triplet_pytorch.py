@@ -50,6 +50,36 @@ def build_positive_pairs(class_id_range, classes_to_ids):
     # that each element in pairs in term of its index is randomly ordered.
     return np.array(listX1)[perm], np.array(listX2)[perm]
 
+
+def sample_positive_pairs_epoch(id_2_label):
+    by_class=defaultdict(list)
+
+    for idx, cls in id_2_label.items():
+        by_class[int(cls)].append(int(idx))
+
+    pairs=[]
+
+    for ids in by_class.values():
+        if len(ids)<2:
+            continue
+
+        for i, anchor in enumerate(ids):
+            j=random.randrange(len(ids)-1)
+
+            if j>=i:
+                j+=1
+
+            pairs.append((anchor, ids[j]))
+
+    if not pairs:
+        raise ValueError("No valid anchor-positive pairs")
+
+    random.shuffle(pairs)
+    a_ids, p_ids=zip(*pairs)
+
+    return np.asarray(a_ids, dtype=np.int64), np.asarray(p_ids, dtype=np.int64)
+
+
 def build_class_index_maps(labels):
     label_2_id = defaultdict(list)
     id_2_label = {}
@@ -562,7 +592,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
                     learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
-                    mixed_violation_prob=0.10, loss_reduction="mean"):
+                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100):
     if alpha_mine is None:
         alpha_mine=alpha_value
 
@@ -573,13 +603,23 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     model.to(device)
 
-    neg_ids=list(set(a_ids)| set(p_ids))
+    if pair_mode=="dynamic":
+        class_counts=defaultdict(int)
+
+        for cls in id_2_label.values():
+            class_counts[cls]+=1
+
+        neg_ids=[idx for idx, cls in id_2_label.items() if class_counts[cls]>=2]
+    else:
+        neg_ids=list(set(a_ids)|set(p_ids))
 
     optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
-    dataset=AnchorPositiveDataset(a_ids, p_ids)
+    dataset=AnchorPositiveDataset(a_ids, p_ids) if pair_mode=="all_pairs" else None
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
+    global_step=0
+    best_val_rank=float("inf")
 
     epoch_bar = tqdm(range(epochs), desc="TripletPower", dynamic_ncols=True)
 
@@ -592,12 +632,20 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             model.eval()
             all_sims=build_similarities(model, all_traces_tensor)
 
+        if pair_mode=="dynamic":
+            a_epoch, p_epoch=sample_positive_pairs_epoch(id_2_label)
+            dataset=AnchorPositiveDataset(a_epoch, p_epoch)
+
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_mine, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=(pair_mode=="all_pairs"))
 
         loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, loss_reduction=loss_reduction)
+        previous_step=global_step
+        global_step+=len(loader)
+
+        tqdm.write(f"[epoch {epoch}] pairs={len(dataset)} | updates={len(loader)} | global_step={global_step}")
         stats = collator_fn.stats
 
         total = max(
@@ -632,6 +680,17 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             tqdm.write(f"Best loss improved: " f"{old_best:.6f} -> {best_loss:.6f}")
 
             tqdm.write(f"Saved checkpoint to: {ckpt_path}")
+
+        if validation_fn is not None and ((global_step//val_every_steps > previous_step//val_every_steps) or epoch==epochs-1):
+            model.eval()
+            val_rank=validation_fn(model, epoch, global_step)
+
+            if val_rank<best_val_rank:
+                best_val_rank=val_rank
+                val_ckpt=Path(ckpt_path).parent/"triplet_val_best.pt"
+                torch.save(model.state_dict(), val_ckpt)
+
+                tqdm.write(f"[VAL BEST] step={global_step} rank={val_rank:.3f} saved={val_ckpt}")
 
         if (epoch+1) % 40 == 0:
             learning_rate /= 2
