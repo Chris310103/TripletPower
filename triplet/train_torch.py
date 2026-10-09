@@ -35,6 +35,7 @@ def parse_args():
     parser.add_argument("--attack_size", type=int, default=10000)
     parser.add_argument('--alpha_value', type=float, default=0.5)
     parser.add_argument("--alpha_mine", type=float, default=None)
+    parser.add_argument("--loss_reduction", type=str, choices=["mean", "mean_nonzero"], default="mean")
     parser.add_argument('--n_neighbors', type=int, default=10)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
@@ -179,7 +180,8 @@ def main():
         alpha_mine=alpha_mine,
         negative_mode=(args.negative_mode),
         legacy_label_2_id=label_2_id,
-        mixed_violation_prob=args.mixed_violation_prob
+        mixed_violation_prob=args.mixed_violation_prob,
+        loss_reduction=args.loss_reduction
     )
 
     # =========================================================================

@@ -142,14 +142,20 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
 
     return ( x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label, ) 
 
-def cosine_triplet_loss(a_embed: torch.Tensor, p_embed: torch.Tensor, n_embed: torch.Tensor, alpha: float=0.5):
+def cosine_triplet_loss(a_embed: torch.Tensor, p_embed: torch.Tensor, n_embed: torch.Tensor, alpha: float=0.5, reduction="mean"):
     p_sim=F.cosine_similarity(a_embed, p_embed, dim=1)
     n_sim=F.cosine_similarity(a_embed, n_embed, dim=1)
 
     raw_loss=n_sim-p_sim+alpha
     loss=torch.clamp(raw_loss, min=0)
 
-    return loss.mean()
+    if reduction=="mean":
+        return loss.mean()
+    elif reduction=="mean_nonzero":
+        return loss.sum()/(loss>0).sum().clamp(min=1)
+    else:
+        raise ValueError(f"Unsupported loss reduction: {reduction}")
+    
 
 def build_similarities(model, traces: torch.Tensor, batch_size=1024):
     with torch.no_grad():
@@ -509,7 +515,7 @@ class TripletBatchCollator():
         return (torch.as_tensor(a_batch, dtype=torch.float32).unsqueeze(-1), torch.as_tensor(p_batch, dtype=torch.float32).unsqueeze(-1), \
                 torch.as_tensor(n_batch, dtype=torch.float32).unsqueeze(-1))
 
-def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5):
+def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5, loss_reduction="mean"):
     model.train()
 
     running_loss=0.0
@@ -537,7 +543,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
             sample_count+=a.size(0)
 
 
-        loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
+        loss=cosine_triplet_loss(anchor, positive, negative, alpha_value, reduction=loss_reduction)
 
         loss.backward()
 
@@ -556,10 +562,11 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
                     learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
-                    mixed_violation_prob=0.10):
+                    mixed_violation_prob=0.10, loss_reduction="mean"):
     if alpha_mine is None:
         alpha_mine=alpha_value
 
+    print(f"Triplet loss reduction: {loss_reduction}")    
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -590,7 +597,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
+        loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, loss_reduction=loss_reduction)
         stats = collator_fn.stats
 
         total = max(
