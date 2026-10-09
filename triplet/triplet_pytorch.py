@@ -510,6 +510,10 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     model.train()
 
     running_loss=0.0
+    pos_sim_sum=0.0
+    neg_sim_sum=0.0
+    violation_count=0
+    sample_count=0
 
     progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
 
@@ -521,6 +525,15 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         positive=model(p)
         negative=model(n)
 
+        with torch.no_grad():
+            p_sim=F.cosine_similarity(anchor, positive, dim=1)
+            n_sim=F.cosine_similarity(anchor, negative, dim=1)
+            pos_sim_sum+=p_sim.sum().item()
+            neg_sim_sum+=n_sim.sum().item()
+            violation_count+=((n_sim-p_sim+alpha_value)>0).sum().item()
+            sample_count+=a.size(0)
+
+
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
         loss.backward()
@@ -529,8 +542,14 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         running_loss+=loss.item()
 
     avg_loss=running_loss/len(dataloader)
+    mean_pos_sim=pos_sim_sum/sample_count
+    mean_neg_sim=neg_sim_sum/sample_count
+    mean_gap=mean_pos_sim-mean_neg_sim
+    violation_fraction=violation_count/sample_count
 
-    return avg_loss  
+    diagnostics={"mean_pos_sim":mean_pos_sim,"mean_neg_sim":mean_neg_sim,"mean_gap":mean_gap,"violation_fraction":violation_fraction}
+
+    return avg_loss, diagnostics
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
                     learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
@@ -565,7 +584,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
+        loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
         stats = collator_fn.stats
 
         total = max(
@@ -579,11 +598,14 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             f"hard={stats['hard']/total:.3f} | "
             f"semihard={stats['semihard']/total:.3f} | "
             f"easy={stats['easy']/total:.3f} | "
+            f"fallback_valid={stats['fallback_random_valid']/total:.3f} | "
             f"mixed_violation={stats['mixed_violation']/total:.3f} | "
             f"mixed_random={stats['mixed_random_valid']/total:.3f} | "
-            f"mixed_random={stats['mixed_random_valid']/total:.3f} |"
             f"same_class={stats['same_class_negative']/total:.3f}"
         )
+        tqdm.write(f"[epoch {epoch}] similarity | pos={diagnostics['mean_pos_sim']:.4f} | neg={diagnostics['mean_neg_sim']:.4f} \
+                   | gap={diagnostics['mean_gap']:.4f} | violation={diagnostics['violation_fraction']:.3f}")
+        
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
 
