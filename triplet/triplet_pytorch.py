@@ -581,6 +581,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             f"easy={stats['easy']/total:.3f} | "
             f"mixed_violation={stats['mixed_violation']/total:.3f} | "
             f"mixed_random={stats['mixed_random_valid']/total:.3f} | "
+            f"mixed_random={stats['mixed_random_valid']/total:.3f} |"
             f"same_class={stats['same_class_negative']/total:.3f}"
         )
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
