@@ -553,6 +553,9 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     neg_sim_sum=0.0
     violation_count=0
     sample_count=0
+    head_grad_sum=0.0
+    conv_grad_sum=0.0
+    grad_checks=0
 
     progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
 
@@ -576,7 +579,13 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value, reduction=loss_reduction)
 
         loss.backward()
+        if barch_idx in (0, len(dataloader)//2, len(dataloader)-1):
+            head_grad=model.output_layer[0].weight.grad
+            conv_grad=model.feature_extractor[1].weight.grad
 
+            head_grad_sum+=head_grad.detach().norm().item() if head_grad is not None else 0.0
+            conv_grad_sum+=conv_grad.detach().norm().item() if conv_grad is not None else 0.0
+            grad_checks+=1
         optimizer.step()
         running_loss+=loss.item()
 
@@ -587,6 +596,8 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     violation_fraction=violation_count/sample_count
 
     diagnostics={"mean_pos_sim":mean_pos_sim,"mean_neg_sim":mean_neg_sim,"mean_gap":mean_gap,"violation_fraction":violation_fraction}
+    diagnostics["head_grad_norm"]=head_grad_sum/max(grad_checks,1)
+    diagnostics["conv_grad_norm"]=conv_grad_sum/max(grad_checks,1)
 
     return avg_loss, diagnostics
 
@@ -642,6 +653,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=(pair_mode=="all_pairs"))
 
         loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, loss_reduction=loss_reduction)
+        tqdm.write(f"[epoch {epoch}] grad | head={diagnostics['head_grad_norm']:.3e} | conv1={diagnostics['conv_grad_norm']:.3e}")
         previous_step=global_step
         global_step+=len(loader)
 
@@ -683,7 +695,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
         if validation_fn is not None and ((global_step//val_every_steps > previous_step//val_every_steps) or epoch==epochs-1):
             model.eval()
-            val_rank=validation_fn(model, epoch, global_step)
+            val_rank=validation_fn(model, epoch, global_step, diagnostics)
 
             if val_rank<best_val_rank:
                 best_val_rank=val_rank

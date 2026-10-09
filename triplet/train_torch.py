@@ -68,6 +68,46 @@ def get_params(args):
 
     return data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit,  leakage_model, n_traces, alpha_value, n_neighbors, seed, lr
 
+def embedding_health(model, traces, labels, n_pairs=10000):
+    captured=[]
+
+    def capture_pre_relu(_module, _inputs, output):
+        captured.append(output.detach().clone().cpu())
+
+    handle=model.output_layer[0].register_forward_hook(capture_pre_relu)
+
+    try:
+        emb=extract_embeddings(traces, model)
+    finally:
+        handle.remove()
+
+    pre=torch.cat(captured, dim=0).numpy()
+    labels=np.asarray(labels)
+    assert len(emb)==len(labels)==len(pre)
+
+    norms=np.linalg.norm(emb, axis=1)
+    usable=norms>=1e-8
+    direction=emb/np.maximum(norms[:,None], 1e-8)
+
+    rng=np.random.default_rng(2026)
+    a=rng.integers(0, len(emb), size=n_pairs)
+    b=rng.integers(0, len(emb), size=n_pairs)
+
+    mask=(a!=b)&usable[a]&usable[b]
+    cos=np.einsum("ij,ij->i", direction[a], direction[b])
+
+    same=mask&(labels[a]==labels[b])
+    diff=mask&(labels[a]!=labels[b])
+
+    return {
+        "zero":float((~usable).mean()),
+        "pre_dead":float((pre<=0).all(axis=1).mean()),
+        "pre_nonpos":float((pre<=0).mean()),
+        "norm_p50":float(np.median(norms)),
+        "pos_cos":float(cos[same].mean()) if same.any() else float("nan"),
+        "neg_cos":float(cos[diff].mean()) if diff.any() else float("nan")
+    } 
+
 def main():
     args=parse_args()
     data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit, leakage_model, n_traces, alpha_value, n_neighbors, seed, lr=\
@@ -207,18 +247,19 @@ def main():
         np.save(ckpt_path.parent/"validation_indices.npy", val_idx)
 
         history_path=ckpt_path.parent/"validation_history.csv"
-        history_path.write_text("epoch,step,hw_accuracy,mean_rank,zero_fraction\n")
+        history_path.write_text("epoch,step,hw_accuracy,mean_rank,train_zero,val_zero,train_pre_dead,val_pre_dead,train_pre_nonpos,val_pre_nonpos,train_norm_p50,val_norm_p50,train_pos_cos,train_neg_cos,val_pos_cos,val_neg_cos,head_grad,conv_grad\n")
         val_root=ckpt_path.parent/"validation_rank"
 
-        def validation_fn(eval_model, epoch, step):
+        def validation_fn(eval_model, epoch, step, train_diag):
             classifier=train_knn(eval_model, x_n, labels_n, n_neighbors=n_neighbors, leakage_model=leakage_model)
             probs=predict_knn_prob(eval_model, classifier, val_x, leakage_model=leakage_model)
 
             expected=get_labels(val_pt, int(val_key[target_byte]), target_byte, leakage_model)
             acc=float(np.mean(np.argmax(probs, axis=1)==expected))
 
-            val_emb=extract_embeddings(val_x, eval_model)
-            zero=float(np.mean(np.linalg.norm(val_emb, axis=1)<1e-8))
+            train_h=embedding_health(eval_model, x_n, labels_n)
+            val_h=embedding_health(eval_model, val_x, expected)
+            zero=val_h["zero"]
 
             py_state, np_state=random.getstate(), np.random.get_state()
 
@@ -240,9 +281,18 @@ def main():
                 val_rank=float(raw["y"][-1])
 
             with history_path.open("a") as f:
-                f.write(f"{epoch+1},{step},{acc:.6f},{val_rank:.4f},{zero:.6f}\n")
+                f.write(f"{epoch+1},{step},{acc:.6f},{val_rank:.4f},"
+                        f"{train_h['zero']:.6f},{val_h['zero']:.6f},{train_h['pre_dead']:.6f},{val_h['pre_dead']:.6f},"
+                        f"{train_h['pre_nonpos']:.6f},{val_h['pre_nonpos']:.6f},"
+                        f"{train_h['norm_p50']:.8e},{val_h['norm_p50']:.8e},"
+                        f"{train_h['pos_cos']:.5f},{train_h['neg_cos']:.5f},"
+                        f"{val_h['pos_cos']:.5f},{val_h['neg_cos']:.5f},"
+                        f"{train_diag['head_grad_norm']:.8e},{train_diag['conv_grad_norm']:.8e}\n")
 
-            print(f"[VAL] epoch={epoch+1} step={step} HW_acc={acc:.4f} mean_rank={val_rank:.2f} zero={zero:.2%}")
+            print(f"[VAL] epoch={epoch+1} step={step} HW_acc={acc:.4f} mean_rank={val_rank:.2f}")
+            print(f"[HEALTH TRAIN] zero={train_h['zero']:.2%} pre_dead={train_h['pre_dead']:.2%} pre_nonpos={train_h['pre_nonpos']:.2%} norm50={train_h['norm_p50']:.3e} pos={train_h['pos_cos']:.3f} neg={train_h['neg_cos']:.3f}")
+            print(f"[HEALTH VAL] zero={val_h['zero']:.2%} pre_dead={val_h['pre_dead']:.2%} pre_nonpos={val_h['pre_nonpos']:.2%} norm50={val_h['norm_p50']:.3e} pos={val_h['pos_cos']:.3f} neg={val_h['neg_cos']:.3f}")
+            print(f"[GRAD] head={train_diag['head_grad_norm']:.3e} conv1={train_diag['conv_grad_norm']:.3e}")
 
             return val_rank
     # =========================================================================
