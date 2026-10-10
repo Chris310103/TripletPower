@@ -44,6 +44,7 @@ def parse_args():
                     choices=[ "current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"], default="current",)
     parser.add_argument("--mixed_violation_prob", type=float, default=0.10,)
     parser.add_argument("--pair_mode", choices=["all_pairs", "dynamic"], default="all_pairs")
+    parser.add_argument("--pair_sampling", choices=["original", "uniform", "hw_sqrt"], default="original")
     parser.add_argument("--val_size", type=int, default=0)
     parser.add_argument("--val_every_steps", type=int, default=100)
     parser.add_argument("--val_rank_traces", type=int, default=1000)
@@ -334,7 +335,10 @@ def main():
         pair_mode=args.pair_mode,
         validation_fn=validation_fn,
         val_every_steps=args.val_every_steps,
+        pair_swap=args.pair_swap,
         pair_swap_seed=seed,
+        pair_sampling=args.pair_sampling,
+        pair_sampling_seed=seed+1009
     )   
 
     if args.val_size > 0:

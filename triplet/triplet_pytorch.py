@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 from torch.optim import RMSprop
 from collections import defaultdict
 from sklearn.neighbors import KNeighborsClassifier
@@ -503,7 +503,7 @@ class AnchorPositiveDataset(Dataset):
         return (int(self.a_ids[idx]), int(self.p_ids[idx]))
 
 class TripletBatchCollator():
-    def __init__(self, all_traces, neg_ids, id_2_label, alpha_mine=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10):
+    def __init__(self, all_traces, neg_ids, id_2_label, alpha_mine=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10,):
         self.all_traces=all_traces
         self.neg_ids=neg_ids
         self.id_2_label=id_2_label
@@ -603,7 +603,8 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
                     learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
-                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100, pair_swap=False, pair_swap_seed=42):
+                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100, pair_swap=False, pair_swap_seed=42,\
+                        pair_sampling="original", pair_sampling_seed=42):
     if alpha_mine is None:
         alpha_mine=alpha_value
 
@@ -626,6 +627,31 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
     dataset=AnchorPositiveDataset(a_ids, p_ids) if pair_mode=="all_pairs" else None
+    if pair_sampling!="original" and (pair_mode!="all_pairs" or pair_swap):
+        raise ValueError("Weighted pair sampling requires all_pairs without pair_swap")
+
+    pair_rng=np.random.default_rng(pair_sampling_seed)
+
+    if pair_sampling!="original":
+        pair_hw=np.asarray([id_2_label[int(i)] for i in a_ids], dtype=np.int64)
+        pair_counts=np.bincount(pair_hw, minlength=9)
+
+        if pair_sampling=="uniform":
+            pair_weights=np.ones(len(a_ids), dtype=np.float64)
+        elif pair_sampling=="hw_sqrt":
+            pair_weights=1.0/np.sqrt(np.maximum(pair_counts[pair_hw], 200))
+        else:
+            raise ValueError(f"Unsupported pair sampling: {pair_sampling}")
+
+        pair_weights/=pair_weights.sum()
+
+        original_mix=pair_counts/pair_counts.sum()
+        target_mix=np.bincount(pair_hw, weights=pair_weights, minlength=9)
+
+        print(f"[PAIR SAMPLING] mode={pair_sampling}")
+        print(f"[PAIR SAMPLING] original HW proportions={np.round(original_mix, 3)}")
+        print(f"[PAIR SAMPLING] target HW proportions={np.round(target_mix, 3)}")
+
     if pair_swap and pair_mode!="all_pairs":
         raise ValueError("pair_swap requires pair_mode=all_pairs")
 
@@ -662,11 +688,21 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             dataset=AnchorPositiveDataset(a_epoch, p_epoch)
 
             tqdm.write(f"[epoch {epoch}] A/P swapped={swap.mean():.2%}")
-            
+
+        epoch_dataset=dataset
+
+        if pair_sampling!="original":
+            selected=pair_rng.choice(len(dataset), size=len(dataset), replace=True, p=pair_weights)
+            epoch_dataset=Subset(dataset, selected.tolist())
+
+            if epoch in (0, 7, 15, 23):
+                actual_counts=np.bincount(pair_hw[selected], minlength=9)
+                tqdm.write(f"[epoch {epoch}] sampled HW proportions={np.round(actual_counts/actual_counts.sum(), 3)}")
+
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_mine, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=(pair_mode=="all_pairs"))
+        loader = DataLoader(epoch_dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=(pair_mode=="all_pairs"))
 
         loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, loss_reduction=loss_reduction)
         tqdm.write(f"[epoch {epoch}] grad | head={diagnostics['head_grad_norm']:.3e} | conv1={diagnostics['conv_grad_norm']:.3e}")
