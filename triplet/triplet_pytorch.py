@@ -603,7 +603,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
                     learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
-                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100):
+                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100, pair_swap=False, pair_swap_seed=42):
     if alpha_mine is None:
         alpha_mine=alpha_value
 
@@ -626,6 +626,10 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
     dataset=AnchorPositiveDataset(a_ids, p_ids) if pair_mode=="all_pairs" else None
+    if pair_swap and pair_mode!="all_pairs":
+        raise ValueError("pair_swap requires pair_mode=all_pairs")
+
+    swap_rng=np.random.default_rng(pair_swap_seed)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
@@ -647,6 +651,18 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             a_epoch, p_epoch=sample_positive_pairs_epoch(id_2_label)
             dataset=AnchorPositiveDataset(a_epoch, p_epoch)
 
+        elif pair_swap:
+            a_epoch=np.asarray(a_ids).copy()
+            p_epoch=np.asarray(p_ids).copy()
+
+            swap=swap_rng.random(len(a_epoch))<0.5
+
+            a_epoch[swap], p_epoch[swap]=p_epoch[swap].copy(), a_epoch[swap].copy()
+
+            dataset=AnchorPositiveDataset(a_epoch, p_epoch)
+
+            tqdm.write(f"[epoch {epoch}] A/P swapped={swap.mean():.2%}")
+            
         collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_mine, 
                                         all_sims, negative_mode=negative_mode, 
                                         legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)

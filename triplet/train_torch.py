@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--val_rank_traces", type=int, default=1000)
     parser.add_argument("--val_rank_runs", type=int, default=20)
     parser.add_argument("--freeze_backbone", action="store_true")
+    parser.add_argument("--pair_swap", action="store_true")
 
     return parser.parse_args()
     
@@ -332,7 +333,8 @@ def main():
         loss_reduction=args.loss_reduction,
         pair_mode=args.pair_mode,
         validation_fn=validation_fn,
-        val_every_steps=args.val_every_steps
+        val_every_steps=args.val_every_steps,
+        pair_swap_seed=seed,
     )   
 
     if args.val_size > 0:
