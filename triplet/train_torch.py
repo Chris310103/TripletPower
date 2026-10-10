@@ -48,6 +48,7 @@ def parse_args():
     parser.add_argument("--val_every_steps", type=int, default=100)
     parser.add_argument("--val_rank_traces", type=int, default=1000)
     parser.add_argument("--val_rank_runs", type=int, default=20)
+    parser.add_argument("--freeze_backbone", action="store_true")
 
     return parser.parse_args()
     
@@ -178,6 +179,20 @@ def main():
     model=build_cnn_best(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
 
     model=model.to(device)
+
+    if args.freeze_backbone:
+        for p in model.feature_extractor.parameters():
+            p.requires_grad_(False)
+
+        for p in model.fc.parameters():
+            p.requires_grad_(False)
+
+        print("[FREEZE] Conv1D + FC1 + FC2 frozen")
+
+    trainable=sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total=sum(p.numel() for p in model.parameters())
+
+    print(f"[PARAMETERS] Trainable: {trainable:,} / {total:,}")
 
     # =========================================================================
     # Sanity Check 

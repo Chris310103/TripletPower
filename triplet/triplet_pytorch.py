@@ -402,9 +402,9 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             if len(possible_ids) > 0:
 
-                possible_ids=sorted(possible_ids, key=lambda idx:all_sims[a_id, idx], reverse=True)
-                top_k_ids=possible_ids[:min(10, len(possible_ids))]
-                neg_id=random.choice(top_k_ids)
+                # possible_ids=sorted(possible_ids, key=lambda idx:all_sims[a_id, idx], reverse=True)
+                # top_k_ids=possible_ids[:min(10, len(possible_ids))]
+                neg_id=random.choice(possible_ids)
 
                 final_neg.append(neg_id)
 
