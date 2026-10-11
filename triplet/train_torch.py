@@ -14,7 +14,6 @@ from triplet.triplet_pytorch import (
     train_tripletpower,
     train_knn,
     predict_knn_prob,
-    extract_embeddings
 )
 from tools.key_rank_new import ranking_curve
 
@@ -27,7 +26,6 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--target_byte', type=int, default=2)
     parser.add_argument("--sample_num_limit", type=int, default=300)
-    parser.add_argument("--selected_indices_path", type=str, default=None)
     parser.add_argument("--trace_num_max", type=int, default=500)
     parser.add_argument("--tracewindow", type=int, nargs=2, default=(0,700))
     parser.add_argument("--num_averaged", type=int, default=100)
@@ -35,22 +33,15 @@ def parse_args():
     parser.add_argument('--n_traces', type=int, default=2000)
     parser.add_argument("--attack_size", type=int, default=10000)
     parser.add_argument('--alpha_value', type=float, default=0.5)
-    parser.add_argument("--alpha_mine", type=float, default=None)
-    parser.add_argument("--loss_reduction", type=str, choices=["mean", "mean_nonzero"], default="mean")
     parser.add_argument('--n_neighbors', type=int, default=10)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
     parser.add_argument("--negative_mode", type=str, 
-                    choices=[ "current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"], default="current",)
-    parser.add_argument("--mixed_violation_prob", type=float, default=0.10,)
-    parser.add_argument("--pair_mode", choices=["all_pairs", "dynamic"], default="all_pairs")
-    parser.add_argument("--pair_sampling", choices=["original", "uniform", "hw_sqrt"], default="original")
+                    choices=[ "current", "true_semihard", "random_valid", "tf_legacy"], default="current",)
     parser.add_argument("--val_size", type=int, default=0)
     parser.add_argument("--val_every_steps", type=int, default=100)
     parser.add_argument("--val_rank_traces", type=int, default=1000)
     parser.add_argument("--val_rank_runs", type=int, default=20)
-    parser.add_argument("--freeze_backbone", action="store_true")
-    parser.add_argument("--pair_swap", action="store_true")
 
     return parser.parse_args()
     
@@ -71,51 +62,10 @@ def get_params(args):
 
     return data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit,  leakage_model, n_traces, alpha_value, n_neighbors, seed, lr
 
-def embedding_health(model, traces, labels, n_pairs=10000):
-    captured=[]
-
-    def capture_pre_relu(_module, _inputs, output):
-        captured.append(output.detach().clone().cpu())
-
-    handle=model.output_layer[0].register_forward_hook(capture_pre_relu)
-
-    try:
-        emb=extract_embeddings(traces, model)
-    finally:
-        handle.remove()
-
-    pre=torch.cat(captured, dim=0).numpy()
-    labels=np.asarray(labels)
-    assert len(emb)==len(labels)==len(pre)
-
-    norms=np.linalg.norm(emb, axis=1)
-    usable=norms>=1e-8
-    direction=emb/np.maximum(norms[:,None], 1e-8)
-
-    rng=np.random.default_rng(2026)
-    a=rng.integers(0, len(emb), size=n_pairs)
-    b=rng.integers(0, len(emb), size=n_pairs)
-
-    mask=(a!=b)&usable[a]&usable[b]
-    cos=np.einsum("ij,ij->i", direction[a], direction[b])
-
-    same=mask&(labels[a]==labels[b])
-    diff=mask&(labels[a]!=labels[b])
-
-    return {
-        "zero":float((~usable).mean()),
-        "pre_dead":float((pre<=0).all(axis=1).mean()),
-        "pre_nonpos":float((pre<=0).mean()),
-        "norm_p50":float(np.median(norms)),
-        "pos_cos":float(cos[same].mean()) if same.any() else float("nan"),
-        "neg_cos":float(cos[diff].mean()) if diff.any() else float("nan")
-    } 
-
 def main():
     args=parse_args()
     data_path, rank_name, epochs, batch_size, target_byte, sample_num_limit, leakage_model, n_traces, alpha_value, n_neighbors, seed, lr=\
         get_params(args)
-    alpha_mine=alpha_value if args.alpha_mine is None else args.alpha_mine
 
     output_root=Path("Output/triplet_pytorch/profiling")
     ckpt_path=Path(output_root/rank_name/"ckpt"/"triplet_best.pt")
@@ -151,17 +101,10 @@ def main():
     # ============================================================
     # Prepare profiling data
     # ============================================================
-    selected_indices=None
-
-    if args.selected_indices_path is not None:
-        selected_indices=np.load(args.selected_indices_path)
-        print("Loaded fixed profiling indices:", args.selected_indices_path)
-        print("Number of fixed indices:", len(selected_indices)) 
-
     selection_rng_state=np.random.get_state()
     x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label = \
         getCLSidDict(data_path=data_path, n_traces=n_traces, attack_size=args.attack_size,\
-        sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, selected_indices=selected_indices, tracewindow=args.tracewindow)
+        sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, tracewindow=args.tracewindow)
 
     print("All N profiling traces:", x_n.shape)
     print("Triplet subset:", x_limited.shape)
@@ -169,64 +112,15 @@ def main():
     # =========================================================================
     # Build positive pairs
     # =========================================================================
-    if args.pair_mode=="dynamic":
-        a_ids=p_ids=np.empty(0, dtype=np.int64)
-        print("Positive pairs will be resampled every epoch")
-    else:
-        a_ids, p_ids=build_positive_pairs(sorted(label_2_id.keys()), label_2_id)
-        print("Number of positive pairs:", len(a_ids))
+    a_ids, p_ids=build_positive_pairs(sorted(label_2_id.keys()), label_2_id)
+    print("Number of positive pairs:", len(a_ids))
+
     # =========================================================================
     # Build Tripletpower embedding network
     # =========================================================================
     model=build_cnn_best(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
-
     model=model.to(device)
 
-    if args.freeze_backbone:
-        for p in model.feature_extractor.parameters():
-            p.requires_grad_(False)
-
-        for p in model.fc.parameters():
-            p.requires_grad_(False)
-
-        print("[FREEZE] Conv1D + FC1 + FC2 frozen")
-
-    trainable=sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total=sum(p.numel() for p in model.parameters())
-
-    print(f"[PARAMETERS] Trainable: {trainable:,} / {total:,}")
-
-    # =========================================================================
-    # Sanity Check 
-    # =========================================================================
-    xt = torch.as_tensor(
-        x_limited,
-        dtype=torch.float32,
-        device=device
-    ).unsqueeze(-1)
-
-    model.eval()
-
-    with torch.no_grad():
-        emb = model(xt)
-        norms = torch.linalg.vector_norm(emb, dim=1)
-
-    print(
-        "[INIT INPUT]",
-        "min=", xt.min().item(),
-        "max=", xt.max().item(),
-        "mean=", xt.mean().item(),
-        "std=", xt.std().item()
-    )
-
-    print(
-        "[INIT EMB]",
-        "mean_norm=", norms.mean().item(),
-        "min_norm=", norms.min().item(),
-        "max_norm=", norms.max().item(),
-        "zero_fraction=",
-        (norms < 1e-8).float().mean().item()
-    )
     # =========================================================================
     # Split Validation data and set its Function
     # =========================================================================
@@ -234,13 +128,9 @@ def main():
 
     if args.val_size>0:
         pool=load_dataset(data_path=data_path, attack_size=args.attack_size, which_one="train")
-
-        if selected_indices is None:
-            saved_rng=np.random.RandomState()
-            saved_rng.set_state(selection_rng_state)
-            train_idx=saved_rng.choice(len(pool["X_train"]), size=n_traces, replace=False)
-        else:
-            train_idx=np.asarray(selected_indices, dtype=np.int64)
+        saved_rng=np.random.RandomState()
+        saved_rng.set_state(selection_rng_state)
+        train_idx=saved_rng.choice(len(pool["X_train"]), size=n_traces, replace=False)
 
         start, end=args.tracewindow
 
@@ -264,19 +154,15 @@ def main():
         np.save(ckpt_path.parent/"validation_indices.npy", val_idx)
 
         history_path=ckpt_path.parent/"validation_history.csv"
-        history_path.write_text("epoch,step,hw_accuracy,mean_rank,train_zero,val_zero,train_pre_dead,val_pre_dead,train_pre_nonpos,val_pre_nonpos,train_norm_p50,val_norm_p50,train_pos_cos,train_neg_cos,val_pos_cos,val_neg_cos,head_grad,conv_grad\n")
+        history_path.write_text("epoch,step,hw_accuracy,mean_rank\n")
         val_root=ckpt_path.parent/"validation_rank"
 
-        def validation_fn(eval_model, epoch, step, train_diag):
+        def validation_fn(eval_model, epoch, step):
             classifier=train_knn(eval_model, x_n, labels_n, n_neighbors=n_neighbors, leakage_model=leakage_model)
             probs=predict_knn_prob(eval_model, classifier, val_x, leakage_model=leakage_model)
 
             expected=get_labels(val_pt, int(val_key[target_byte]), target_byte, leakage_model)
             acc=float(np.mean(np.argmax(probs, axis=1)==expected))
-
-            train_h=embedding_health(eval_model, x_n, labels_n)
-            val_h=embedding_health(eval_model, val_x, expected)
-            zero=val_h["zero"]
 
             py_state, np_state=random.getstate(), np.random.get_state()
 
@@ -298,18 +184,9 @@ def main():
                 val_rank=float(raw["y"][-1])
 
             with history_path.open("a") as f:
-                f.write(f"{epoch+1},{step},{acc:.6f},{val_rank:.4f},"
-                        f"{train_h['zero']:.6f},{val_h['zero']:.6f},{train_h['pre_dead']:.6f},{val_h['pre_dead']:.6f},"
-                        f"{train_h['pre_nonpos']:.6f},{val_h['pre_nonpos']:.6f},"
-                        f"{train_h['norm_p50']:.8e},{val_h['norm_p50']:.8e},"
-                        f"{train_h['pos_cos']:.5f},{train_h['neg_cos']:.5f},"
-                        f"{val_h['pos_cos']:.5f},{val_h['neg_cos']:.5f},"
-                        f"{train_diag['head_grad_norm']:.8e},{train_diag['conv_grad_norm']:.8e}\n")
+                f.write(f"{epoch+1},{step},{acc:.6f},{val_rank:.4f}\n")
 
             print(f"[VAL] epoch={epoch+1} step={step} HW_acc={acc:.4f} mean_rank={val_rank:.2f}")
-            print(f"[HEALTH TRAIN] zero={train_h['zero']:.2%} pre_dead={train_h['pre_dead']:.2%} pre_nonpos={train_h['pre_nonpos']:.2%} norm50={train_h['norm_p50']:.3e} pos={train_h['pos_cos']:.3f} neg={train_h['neg_cos']:.3f}")
-            print(f"[HEALTH VAL] zero={val_h['zero']:.2%} pre_dead={val_h['pre_dead']:.2%} pre_nonpos={val_h['pre_nonpos']:.2%} norm50={val_h['norm_p50']:.3e} pos={val_h['pos_cos']:.3f} neg={val_h['neg_cos']:.3f}")
-            print(f"[GRAD] head={train_diag['head_grad_norm']:.3e} conv1={train_diag['conv_grad_norm']:.3e}")
 
             return val_rank
     # =========================================================================
@@ -327,18 +204,10 @@ def main():
         batch_size=batch_size,
         learning_rate=lr,
         alpha_value=alpha_value,
-        alpha_mine=alpha_mine,
         negative_mode=(args.negative_mode),
         legacy_label_2_id=label_2_id,
-        mixed_violation_prob=args.mixed_violation_prob,
-        loss_reduction=args.loss_reduction,
-        pair_mode=args.pair_mode,
         validation_fn=validation_fn,
         val_every_steps=args.val_every_steps,
-        pair_swap=args.pair_swap,
-        pair_swap_seed=seed,
-        pair_sampling=args.pair_sampling,
-        pair_sampling_seed=seed+1009
     )   
 
     if args.val_size > 0:
@@ -357,8 +226,6 @@ def main():
         labels=labels_n,
         n_neighbors=n_neighbors,
     )
-
-    print("KNN classes:", classifier.classes_)
 
     # =========================================================================
     # Load Attack data

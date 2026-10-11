@@ -1,12 +1,10 @@
-import pandas as pd
 import numpy as np
 import random
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, Subset
-from torch.optim import RMSprop
+from torch.utils.data import Dataset, DataLoader
 from collections import defaultdict
 from sklearn.neighbors import KNeighborsClassifier
 from tqdm.auto import tqdm
@@ -51,35 +49,6 @@ def build_positive_pairs(class_id_range, classes_to_ids):
     return np.array(listX1)[perm], np.array(listX2)[perm]
 
 
-def sample_positive_pairs_epoch(id_2_label):
-    by_class=defaultdict(list)
-
-    for idx, cls in id_2_label.items():
-        by_class[int(cls)].append(int(idx))
-
-    pairs=[]
-
-    for ids in by_class.values():
-        if len(ids)<2:
-            continue
-
-        for i, anchor in enumerate(ids):
-            j=random.randrange(len(ids)-1)
-
-            if j>=i:
-                j+=1
-
-            pairs.append((anchor, ids[j]))
-
-    if not pairs:
-        raise ValueError("No valid anchor-positive pairs")
-
-    random.shuffle(pairs)
-    a_ids, p_ids=zip(*pairs)
-
-    return np.asarray(a_ids, dtype=np.int64), np.asarray(p_ids, dtype=np.int64)
-
-
 def build_class_index_maps(labels):
     label_2_id = defaultdict(list)
     id_2_label = {}
@@ -116,7 +85,7 @@ def limit_per_class(x,  labels, sample_num_limit: int,):
 
     return x_limited, labels_limited, label_2_id, id_2_label, selected_indices
 
-def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_model, target_byte=2, selected_indices=None, tracewindow=(0, 700)):
+def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_model, target_byte=2, tracewindow=(0, 700)):
     if str(data_path).endswith(".npz"):
         data_dict = load_dataset(str(data_path), attack_size=attack_size, which_one="train")
     else:
@@ -125,22 +94,8 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
 
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
-
-    if selected_indices is None:
-        if n_traces > len(x):
-            raise ValueError("the number of n_traces bigger than that of x")
-        selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
-    else:
-        selected_n_indices=np.asarray(selected_indices, dtype=np.int64)
-
-        if selected_n_indices.ndim != 1:
-            raise ValueError("selected_indices must be a 1-D array")
-
-        if len(selected_n_indices) != n_traces:
-            raise ValueError(f"selected_indices has {len(selected_n_indices)} entries, expected n_traces={n_traces}")
-
-        if selected_n_indices.min() < 0 or selected_n_indices.max() >= len(x):
-            raise ValueError("selected_indices contains out-of-range indices")
+ 
+    selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
 
     x_n=x[selected_n_indices]
     plain_text_n=plain_text[selected_n_indices]
@@ -172,20 +127,13 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
 
     return ( x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label, ) 
 
-def cosine_triplet_loss(a_embed: torch.Tensor, p_embed: torch.Tensor, n_embed: torch.Tensor, alpha: float=0.5, reduction="mean"):
+def cosine_triplet_loss(a_embed: torch.Tensor, p_embed: torch.Tensor, n_embed: torch.Tensor, alpha: float=0.5):
     p_sim=F.cosine_similarity(a_embed, p_embed, dim=1)
     n_sim=F.cosine_similarity(a_embed, n_embed, dim=1)
 
     raw_loss=n_sim-p_sim+alpha
     loss=torch.clamp(raw_loss, min=0)
-
-    if reduction=="mean":
-        return loss.mean()
-    elif reduction=="mean_nonzero":
-        return loss.sum()/(loss>0).sum().clamp(min=1)
-    else:
-        raise ValueError(f"Unsupported loss reduction: {reduction}")
-    
+    return loss.mean()
 
 def build_similarities(model, traces: torch.Tensor, batch_size=1024):
     with torch.no_grad():
@@ -207,9 +155,9 @@ def intersect(a,b):
     return list(set(a) & set(b))
 
 def build_negatives(a_ids, p_ids, neg_ids, id_2_label, 
-                alpha_mine, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
-                stats=None, legacy_label_2_id=None, mixed_violation_prob=0.10):
-    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy", "mixed_valid"}:
+                alpha_value=0.5, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
+                stats=None, legacy_label_2_id=None):
+    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy"}:
         raise ValueError(f"unsupported negative_mode: {negative_mode}")
 
     if stats is None:
@@ -241,7 +189,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             pos_sim = all_sims[ a_id, p_id, ]
 
-            possible_ids = np.where( ( all_sims[a_id] + alpha_mine ) > pos_sim )[0]
+            possible_ids = np.where( ( all_sims[a_id] + alpha_value ) > pos_sim )[0]
 
             possible_ids = intersect( neg_ids, possible_ids, )
 
@@ -286,7 +234,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             if neg_sim >= pos_sim:
                 stats["hard"] += 1
 
-            elif ( neg_sim > pos_sim - alpha_mine):
+            elif ( neg_sim > pos_sim - alpha_value):
                 stats["semihard"] += 1
 
             else:
@@ -336,9 +284,6 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
 
             stats["total"] += 1
             stats["random_valid"] += 1
-            if negative_mode == "mixed_valid":
-                stats["mixed_random_valid"]+=1
-
         return final_neg    
 
     # ============================================================
@@ -353,7 +298,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
         # CURRENT IMPLEMENTATION
         # ========================================================
         if negative_mode=="current":
-            possible_ids=np.where((all_sims[a_id]+alpha_mine) > pos_sim)[0]
+            possible_ids=np.where((all_sims[a_id]+alpha_value) > pos_sim)[0]
             possible_ids=intersect(possible_ids, neg_ids)
 
             appended=False
@@ -394,16 +339,13 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
         # ========================================================
         elif(negative_mode=="true_semihard"):
             similarities=all_sims[a_id]
-            possible_ids=np.where(((similarities+alpha_mine)>pos_sim) & (similarities < pos_sim))[0]
+            possible_ids=np.where(((similarities+alpha_value)>pos_sim) & (similarities < pos_sim))[0]
 
             possible_ids=intersect(possible_ids, neg_ids)
 
             possible_ids=[idx for idx in possible_ids if (id_2_label[idx]!=anchor_class)]
 
             if len(possible_ids) > 0:
-
-                # possible_ids=sorted(possible_ids, key=lambda idx:all_sims[a_id, idx], reverse=True)
-                # top_k_ids=possible_ids[:min(10, len(possible_ids))]
                 neg_id=random.choice(possible_ids)
 
                 final_neg.append(neg_id)
@@ -435,50 +377,7 @@ def build_negatives(a_ids, p_ids, neg_ids, id_2_label,
             final_neg.append( neg_id )
 
             stats["total"] += 1
-            stats["random_valid"] += 1
-
-        # =========================================================================
-        # MODE D:
-        # Mixed Valid
-        # =========================================================================
-
-        elif negative_mode=="mixed_valid":
-            use_violation=(random.random()<mixed_violation_prob)
-
-            neg_id=None
-
-            if use_violation:
-                possible_ids=np.where((all_sims[a_id]+alpha_mine)>pos_sim)[0]
-                possible_ids=intersect(possible_ids, neg_ids)
-                possible_ids=[idx for idx in possible_ids if id_2_label[idx] != anchor_class]
-
-                if len(possible_ids)>0:
-                    neg_id=random.choice(possible_ids)
-                    stats["mixed_violation"]+=1
-                else:
-                    stats["mixed_violation_fallback"]+=1
-
-            if neg_id is None:
-
-                neg_id = choose_random_valid( anchor_class )
-                stats[ "mixed_random_valid" ] += 1
-            neg_sim = all_sims[
-                    a_id,
-                    neg_id
-                ]
-
-            if neg_sim >= pos_sim:
-                stats["hard"] += 1
-
-            elif ( neg_sim > pos_sim - alpha_mine ):
-
-                stats["semihard"] += 1
-
-            else:
-                stats["easy"] += 1
-
-            final_neg.append( int(neg_id) )
-            stats["total"] += 1                      
+            stats["random_valid"] += 1     
 
     assert len(final_neg) == len(a_ids), (
             f"build_negatives mismatch: "
@@ -503,20 +402,19 @@ class AnchorPositiveDataset(Dataset):
         return (int(self.a_ids[idx]), int(self.p_ids[idx]))
 
 class TripletBatchCollator():
-    def __init__(self, all_traces, neg_ids, id_2_label, alpha_mine=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None, mixed_violation_prob=0.10,):
+    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None):
         self.all_traces=all_traces
         self.neg_ids=neg_ids
         self.id_2_label=id_2_label
-        self.alpha_mine=alpha_mine
         self.all_sims=all_sims 
         self.negative_mode=negative_mode
+        self.alpha_value=alpha_value
         self.stats=defaultdict(int)
 
         classes=sorted(set(id_2_label.values()))
 
         self.valid_neg_ids_by_class={class_id: [idx for idx in neg_ids if (id_2_label[idx]!=class_id)] for class_id in classes} 
         self.legacy_label_2_id = (legacy_label_2_id)
-        self.mixed_violation_prob=mixed_violation_prob   
 
     def __call__(self, batch):
         a_ids=[item[0] for item in batch]
@@ -527,13 +425,12 @@ class TripletBatchCollator():
             p_ids=p_ids,
             neg_ids=self.neg_ids,
             id_2_label=self.id_2_label,
-            alpha_mine=self.alpha_mine,
+            alpha_value=self.alpha_value,
             all_sims=self.all_sims,
             negative_mode=self.negative_mode,
             valid_neg_ids_by_class=self.valid_neg_ids_by_class,
             stats=self.stats,
             legacy_label_2_id=self.legacy_label_2_id,
-            mixed_violation_prob=self.mixed_violation_prob
         )
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
@@ -545,21 +442,12 @@ class TripletBatchCollator():
         return (torch.as_tensor(a_batch, dtype=torch.float32).unsqueeze(-1), torch.as_tensor(p_batch, dtype=torch.float32).unsqueeze(-1), \
                 torch.as_tensor(n_batch, dtype=torch.float32).unsqueeze(-1))
 
-def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5, loss_reduction="mean"):
+def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5):
     model.train()
-
     running_loss=0.0
-    pos_sim_sum=0.0
-    neg_sim_sum=0.0
-    violation_count=0
-    sample_count=0
-    head_grad_sum=0.0
-    conv_grad_sum=0.0
-    grad_checks=0
-
     progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
 
-    for barch_idx, (a, p, n) in enumerate(progress_bar):
+    for a, p, n in progress_bar:
         a,p,n=a.to(device), p.to(device), n.to(device)
         optimizer.zero_grad()
 
@@ -567,95 +455,26 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         positive=model(p)
         negative=model(n)
 
-        with torch.no_grad():
-            p_sim=F.cosine_similarity(anchor, positive, dim=1)
-            n_sim=F.cosine_similarity(anchor, negative, dim=1)
-            pos_sim_sum+=p_sim.sum().item()
-            neg_sim_sum+=n_sim.sum().item()
-            violation_count+=((n_sim-p_sim+alpha_value)>0).sum().item()
-            sample_count+=a.size(0)
-
-
-        loss=cosine_triplet_loss(anchor, positive, negative, alpha_value, reduction=loss_reduction)
+        loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
         loss.backward()
-        if barch_idx in (0, len(dataloader)//2, len(dataloader)-1):
-            head_grad=model.output_layer[0].weight.grad
-            conv_grad=model.feature_extractor[1].weight.grad
-
-            head_grad_sum+=head_grad.detach().norm().item() if head_grad is not None else 0.0
-            conv_grad_sum+=conv_grad.detach().norm().item() if conv_grad is not None else 0.0
-            grad_checks+=1
         optimizer.step()
         running_loss+=loss.item()
 
-    avg_loss=running_loss/len(dataloader)
-    mean_pos_sim=pos_sim_sum/sample_count
-    mean_neg_sim=neg_sim_sum/sample_count
-    mean_gap=mean_pos_sim-mean_neg_sim
-    violation_fraction=violation_count/sample_count
+    return running_loss/len(dataloader)
 
-    diagnostics={"mean_pos_sim":mean_pos_sim,"mean_neg_sim":mean_neg_sim,"mean_gap":mean_gap,"violation_fraction":violation_fraction}
-    diagnostics["head_grad_norm"]=head_grad_sum/max(grad_checks,1)
-    diagnostics["conv_grad_norm"]=conv_grad_sum/max(grad_checks,1)
-
-    return avg_loss, diagnostics
-
-def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,\
-                    learning_rate=1e-5, alpha_value=0.5, alpha_mine=None, negative_mode="current", legacy_label_2_id=None,
-                    mixed_violation_prob=0.10, loss_reduction="mean", pair_mode="all_pairs", validation_fn=None, val_every_steps=100, pair_swap=False, pair_swap_seed=42,\
-                        pair_sampling="original", pair_sampling_seed=42):
-    if alpha_mine is None:
-        alpha_mine=alpha_value
-
-    print(f"Triplet loss reduction: {loss_reduction}")    
+def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,
+                learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
+                validation_fn=None, val_every_steps=100,): 
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
 
     model.to(device)
-
-    if pair_mode=="dynamic":
-        class_counts=defaultdict(int)
-
-        for cls in id_2_label.values():
-            class_counts[cls]+=1
-
-        neg_ids=[idx for idx, cls in id_2_label.items() if class_counts[cls]>=2]
-    else:
-        neg_ids=list(set(a_ids)|set(p_ids))
+    neg_ids=list(set(a_ids)|set(p_ids))
 
     optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False)
-    dataset=AnchorPositiveDataset(a_ids, p_ids) if pair_mode=="all_pairs" else None
-    if pair_sampling!="original" and (pair_mode!="all_pairs" or pair_swap):
-        raise ValueError("Weighted pair sampling requires all_pairs without pair_swap")
-
-    pair_rng=np.random.default_rng(pair_sampling_seed)
-
-    if pair_sampling!="original":
-        pair_hw=np.asarray([id_2_label[int(i)] for i in a_ids], dtype=np.int64)
-        pair_counts=np.bincount(pair_hw, minlength=9)
-
-        if pair_sampling=="uniform":
-            pair_weights=np.ones(len(a_ids), dtype=np.float64)
-        elif pair_sampling=="hw_sqrt":
-            pair_weights=1.0/np.sqrt(np.maximum(pair_counts[pair_hw], 200))
-        else:
-            raise ValueError(f"Unsupported pair sampling: {pair_sampling}")
-
-        pair_weights/=pair_weights.sum()
-
-        original_mix=pair_counts/pair_counts.sum()
-        target_mix=np.bincount(pair_hw, weights=pair_weights, minlength=9)
-
-        print(f"[PAIR SAMPLING] mode={pair_sampling}")
-        print(f"[PAIR SAMPLING] original HW proportions={np.round(original_mix, 3)}")
-        print(f"[PAIR SAMPLING] target HW proportions={np.round(target_mix, 3)}")
-
-    if pair_swap and pair_mode!="all_pairs":
-        raise ValueError("pair_swap requires pair_mode=all_pairs")
-
-    swap_rng=np.random.default_rng(pair_swap_seed)
+    dataset=AnchorPositiveDataset(a_ids, p_ids)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
@@ -673,65 +492,21 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             model.eval()
             all_sims=build_similarities(model, all_traces_tensor)
 
-        if pair_mode=="dynamic":
-            a_epoch, p_epoch=sample_positive_pairs_epoch(id_2_label)
-            dataset=AnchorPositiveDataset(a_epoch, p_epoch)
+        collator_fn=TripletBatchCollator(
+            all_traces, neg_ids, id_2_label,
+            alpha_value=alpha_value,
+            all_sims=all_sims,
+            negative_mode=negative_mode,
+            legacy_label_2_id=legacy_label_2_id
+        )
 
-        elif pair_swap:
-            a_epoch=np.asarray(a_ids).copy()
-            p_epoch=np.asarray(p_ids).copy()
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-            swap=swap_rng.random(len(a_epoch))<0.5
+        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
 
-            a_epoch[swap], p_epoch[swap]=p_epoch[swap].copy(), a_epoch[swap].copy()
-
-            dataset=AnchorPositiveDataset(a_epoch, p_epoch)
-
-            tqdm.write(f"[epoch {epoch}] A/P swapped={swap.mean():.2%}")
-
-        epoch_dataset=dataset
-
-        if pair_sampling!="original":
-            selected=pair_rng.choice(len(dataset), size=len(dataset), replace=True, p=pair_weights)
-            epoch_dataset=Subset(dataset, selected.tolist())
-
-            if epoch in (0, 7, 15, 23):
-                actual_counts=np.bincount(pair_hw[selected], minlength=9)
-                tqdm.write(f"[epoch {epoch}] sampled HW proportions={np.round(actual_counts/actual_counts.sum(), 3)}")
-
-        collator_fn=TripletBatchCollator(all_traces, neg_ids, id_2_label, alpha_mine, 
-                                        all_sims, negative_mode=negative_mode, 
-                                        legacy_label_2_id=legacy_label_2_id, mixed_violation_prob=mixed_violation_prob)
-        loader = DataLoader(epoch_dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=(pair_mode=="all_pairs"))
-
-        loss, diagnostics=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, loss_reduction=loss_reduction)
-        tqdm.write(f"[epoch {epoch}] grad | head={diagnostics['head_grad_norm']:.3e} | conv1={diagnostics['conv_grad_norm']:.3e}")
         previous_step=global_step
         global_step+=len(loader)
 
-        tqdm.write(f"[epoch {epoch}] pairs={len(dataset)} | updates={len(loader)} | global_step={global_step}")
-        stats = collator_fn.stats
-
-        total = max(
-            stats["total"],
-            1,
-        )
-
-        tqdm.write(
-            f"[epoch {epoch}] "
-            f"mining={negative_mode} | "
-            f"hard={stats['hard']/total:.3f} | "
-            f"semihard={stats['semihard']/total:.3f} | "
-            f"easy={stats['easy']/total:.3f} | "
-            f"fallback_valid={stats['fallback_random_valid']/total:.3f} | "
-            f"mixed_violation={stats['mixed_violation']/total:.3f} | "
-            f"mixed_fallback={stats['mixed_violation_fallback']/total:.3f} | "
-            f"mixed_random={stats['mixed_random_valid']/total:.3f} | "
-            f"same_class={stats['same_class_negative']/total:.3f}"
-        )
-        tqdm.write(f"[epoch {epoch}] margins | loss_alpha={alpha_value:.3f} | mine_alpha={alpha_mine:.3f}")
-        tqdm.write(f"[epoch {epoch}] similarity | pos={diagnostics['mean_pos_sim']:.4f} | neg={diagnostics['mean_neg_sim']:.4f} | gap={diagnostics['mean_gap']:.4f} | violation={diagnostics['violation_fraction']:.3f}")
-        
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
 
@@ -747,7 +522,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
         if validation_fn is not None and ((global_step//val_every_steps > previous_step//val_every_steps) or epoch==epochs-1):
             model.eval()
-            val_rank=validation_fn(model, epoch, global_step, diagnostics)
+            val_rank=validation_fn(model, epoch, global_step)
 
             if val_rank<best_val_rank:
                 best_val_rank=val_rank
@@ -761,29 +536,6 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
             for param in optimizer.param_groups:
                 param["lr"]=learning_rate
-
-        model.eval()
-        with torch.no_grad():
-            emb = model(
-                all_traces_tensor
-            )
-
-            norms = torch.linalg.vector_norm(
-                emb,
-                dim=1,
-            )
-
-        zero_fraction = (
-            norms < 1e-8
-        ).float().mean().item()
-
-        print(
-            f"[epoch {epoch}] "
-            f"embedding norm mean="
-            f"{norms.mean().item():.6f}, "
-            f"zero fraction="
-            f"{zero_fraction:.6f}"
-        )
 
     final_ckpt_path = (Path(ckpt_path).parent / "triplet_final.pt")
     torch.save(model.state_dict(), final_ckpt_path,)
@@ -865,10 +617,6 @@ def predict_knn_prob(model: CNN_Best, classifier:KNeighborsClassifier, traces, l
     probabilities = np.zeros((raw_probabilities.shape[0], num_classes), dtype=raw_probabilities.dtype )
 
     probabilities[:, classes] = raw_probabilities
-
-    print("KNN classes:", classes)
-    print( "Raw probability shape:", raw_probabilities.shape )
-    print( "Final probability shape:", probabilities.shape )
 
     return probabilities
 
