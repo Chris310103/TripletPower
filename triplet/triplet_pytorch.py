@@ -473,7 +473,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
     model.to(device)
     neg_ids=list(set(a_ids)|set(p_ids))
 
-    optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8)   
+    optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-4)   
     dataset=AnchorPositiveDataset(a_ids, p_ids)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
