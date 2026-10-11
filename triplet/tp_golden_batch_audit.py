@@ -1,219 +1,313 @@
 #!/usr/bin/env python3
-"""TripletPower: one-batch, same-weights TensorFlow vs PyTorch differential audit.
+"""Cross-environment TripletPower Golden Batch audit.
 
-Run from the TripletPower repository root (where tools/ is importable):
-    python tp_golden_batch_audit.py --data_path '../Target 1/X1_K1_200k_L11.npz'
+One file, two independent Python environments. No TensorFlow is imported by
+--stage torch; no PyTorch is imported by --stage tf.
 
-Does not train a model or modify any existing training/checkpoint file.
+Run from repo root:
+
+  # activate the PyTorch environment
+  python tp_golden_split_audit.py --stage torch \
+      --data_path '../Target 1/X1_K1_200k_L11.npz' \
+      --checkpoint 'Output/.../triplet_val_best.pt' \
+      --out 'audit/tp_golden.npz'
+
+  # activate the TensorFlow environment
+  python tp_golden_split_audit.py --stage tf --out 'audit/tp_golden.npz'
+
+Nothing in training or checkpoint paths is modified; the sole generated file
+is --out, containing input batches, imported weights and selected numerical
+measurements. This is a two-step optimizer comparison from a *new* state, not
+an exact restart of historical training.
 """
 import os
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # CPU: avoid differing GPU algorithms
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import argparse
-import random
-import numpy as np
-import torch
-import tensorflow as tf
+import sys
+from pathlib import Path
 from collections import defaultdict
+import numpy as np
 
-from tools.loadData import get_labels
-from tools.model_zoo import cnn_best as build_tf_cnn
-from tools.model_zoo_pytorch import build_cnn_best as build_torch_cnn
-from triplet.triplet_pytorch import cosine_triplet_loss
+# The script can be placed either in the repository root or under triplet/.
+_here = Path(__file__).resolve().parent
+_repo_root = _here if (_here / "tools").is_dir() else _here.parent
+if not (_repo_root / "tools").is_dir():
+    raise RuntimeError("Place this script in the TripletPower root or triplet/ directory")
+sys.path.insert(0, str(_repo_root))
+
+# TF layer name, PyTorch module name, and whether the weight is Conv1d.
+WEIGHT_LAYER_NAMES = (
+    "block1_conv1", "block2_conv1", "block3_conv1", "block4_conv1",
+    "block5_conv1", "fc1", "fc2", "predictions",
+)
+ACTIVATION_NAMES = (
+    "block1_conv1", "block1_pool", "block2_conv1", "block2_pool",
+    "block3_conv1", "block3_pool", "block4_conv1", "block4_pool",
+    "block5_conv1", "block5_pool", "fc1", "fc2", "predictions",
+)
 
 
-def compare(label, actual, reference):
-    a = np.asarray(actual, dtype=np.float64)
-    b = np.asarray(reference, dtype=np.float64)
-    if a.shape != b.shape:
-        raise AssertionError(f"{label}: shape {a.shape} != {b.shape}")
-    delta = a - b
-    mx = float(np.max(np.abs(delta)))
-    rel = float(np.linalg.norm(delta.ravel()) / max(np.linalg.norm(b.ravel()), 1e-12))
-    print(f"{label:22s} max_abs={mx:.4e}  relative_l2={rel:.4e}")
-    return mx, rel
-
-
-def to_tf_array(tensor, is_conv):
+def to_tf_layout(tensor, is_conv):
     arr = tensor.detach().cpu().numpy()
     return arr.transpose(2, 1, 0) if is_conv else arr.T
 
 
-def setup_models(length, checkpoint=None):
-    p = build_torch_cnn(input_shape=(length, 1), emb_size=256, classification=False)
-    if checkpoint:
-        state = torch.load(checkpoint, map_location="cpu", weights_only=True)
-        p.load_state_dict(state, strict=True)
-        print("Loaded PyTorch checkpoint:", checkpoint)
-        print("Note: optimizer state is reset; this checks a fresh RMSprop step, not an exact resumed update.")
-    p.eval()
-    t = build_tf_cnn(input_shape=(length, 1), emb_size=256, classification=False)
-    # (TF named layer, PyTorch module, is_conv)
-    layers = [
-        ("block1_conv1", p.feature_extractor[1], True),
-        ("block2_conv1", p.feature_extractor[4], True),
-        ("block3_conv1", p.feature_extractor[7], True),
-        ("block4_conv1", p.feature_extractor[10], True),
-        ("block5_conv1", p.feature_extractor[13], True),
-        ("fc1", p.fc[1], False),
-        ("fc2", p.fc[3], False),
-        ("predictions", p.output_layer[0], False),
-    ]
-    for name, pt_layer, is_conv in layers:
-        tf_layer = t.get_layer(name)
-        tf_layer.set_weights([
-            to_tf_array(pt_layer.weight, is_conv),
-            pt_layer.bias.detach().cpu().numpy(),
-        ])
-        compare(f"weight {name}", to_tf_array(pt_layer.weight, is_conv), tf_layer.get_weights()[0])
-    return p, t, layers
-
-
-def triplets_from_real_traces(path, start, end, pool_size, count, seed):
-    with np.load(path, allow_pickle=False) as raw:
-        x = np.asarray(raw["power_trace"][:pool_size, start:end], dtype=np.float32)
-        pt = np.asarray(raw["plain_text"][:pool_size])
-        key = np.asarray(raw["key"])
+def build_triplets(path, start, end, pool_size, count, seed):
+    from tools.loadData import get_labels
+    with np.load(path, allow_pickle=False) as f:
+        traces = np.asarray(f["power_trace"][:pool_size, start:end], dtype=np.float32)
+        plaintext = np.asarray(f["plain_text"][:pool_size])
+        key = np.asarray(f["key"])
     if key.ndim != 1:
-        raise ValueError("This audit expects a fixed-key NPZ dataset")
-    labs = np.asarray(get_labels(pt, int(key[2]), 2, "HW"), dtype=np.int64)
+        raise ValueError("This audit currently requires a fixed-key NPZ dataset")
+    labels = np.asarray(get_labels(plaintext, int(key[2]), 2, "HW"), dtype=np.int64)
     groups = defaultdict(list)
-    for i, cls in enumerate(labs):
-        groups[int(cls)].append(i)
-    valid = [c for c, ids in groups.items() if len(ids) >= 2]
+    for i, hw in enumerate(labels):
+        groups[int(hw)].append(i)
+    valid = [hw for hw, ids in groups.items() if len(ids) >= 2]
     if len(valid) < 2:
-        raise ValueError("Not enough HW classes with 2 or more traces")
+        raise ValueError("Need >=2 classes with >=2 traces in the selected pool")
     rng = np.random.default_rng(seed)
-    a, pos, neg = [], [], []
+    a, p, n = [], [], []
     for _ in range(count):
         cls = int(rng.choice(valid))
-        aa, pp = rng.choice(groups[cls], size=2, replace=False)
-        neg_cls = int(rng.choice([c for c in groups if c != cls]))
+        aa, pp = rng.choice(groups[cls], 2, replace=False)
+        neg_cls = int(rng.choice([v for v in groups if v != cls]))
         nn = int(rng.choice(groups[neg_cls]))
-        a.append(int(aa)); pos.append(int(pp)); neg.append(nn)
-    assert np.all(labs[a] == labs[pos]) and np.all(labs[a] != labs[neg])
-    print(f"Fixed real-data triplets: {len(a)}  pool={len(x)}  window=[{start}, {end})")
-    return x[a, :, None].copy(), x[pos, :, None].copy(), x[neg, :, None].copy()
+        a.append(int(aa)); p.append(int(pp)); n.append(nn)
+    assert np.all(labels[a] == labels[p]) and np.all(labels[a] != labels[n])
+    return [traces[idx, :, None].copy() for idx in (a, p, n)]
 
 
-def forward_intermediates(p_model, t_model, x):
-    # TF conv has integrated ReLU, so compare to Torch post-ReLU, not Conv1d pre-ReLU.
-    pt_modules = [
-        p_model.feature_extractor[2], p_model.feature_extractor[3],
-        p_model.feature_extractor[5], p_model.feature_extractor[6],
-        p_model.feature_extractor[8], p_model.feature_extractor[9],
-        p_model.feature_extractor[11], p_model.feature_extractor[12],
-        p_model.feature_extractor[14], p_model.feature_extractor[15],
-        p_model.fc[2], p_model.fc[4], p_model.output_layer[1],
+def torch_layers(model):
+    return {
+        "block1_conv1": (model.feature_extractor[1], True),
+        "block2_conv1": (model.feature_extractor[4], True),
+        "block3_conv1": (model.feature_extractor[7], True),
+        "block4_conv1": (model.feature_extractor[10], True),
+        "block5_conv1": (model.feature_extractor[13], True),
+        "fc1": (model.fc[1], False),
+        "fc2": (model.fc[3], False),
+        "predictions": (model.output_layer[0], False),
+    }
+
+
+def torch_activations(model, x, torch):
+    modules = [
+        model.feature_extractor[2], model.feature_extractor[3],
+        model.feature_extractor[5], model.feature_extractor[6],
+        model.feature_extractor[8], model.feature_extractor[9],
+        model.feature_extractor[11], model.feature_extractor[12],
+        model.feature_extractor[14], model.feature_extractor[15],
+        model.fc[2], model.fc[4], model.output_layer[1],
     ]
-    names = [
-        "block1_conv1", "block1_pool", "block2_conv1", "block2_pool",
-        "block3_conv1", "block3_pool", "block4_conv1", "block4_pool",
-        "block5_conv1", "block5_pool", "fc1", "fc2", "predictions",
-    ]
-    seen = {}
-    handlers = []
-    for name, module in zip(names, pt_modules):
-        handlers.append(module.register_forward_hook(
-            lambda mod, ins, out, key=name: seen.__setitem__(key, out.detach().numpy().copy())
+    results = {}
+    handles = []
+    for name, module in zip(ACTIVATION_NAMES, modules):
+        handles.append(module.register_forward_hook(
+            lambda _m, _inp, out, label=name:
+            results.__setitem__(label, out.detach().cpu().numpy().copy())
         ))
     try:
         with torch.no_grad():
-            p_model(torch.from_numpy(x))
+            model(torch.from_numpy(x))
     finally:
-        for h in handlers:
+        for h in handles:
             h.remove()
-    probe = tf.keras.Model(t_model.inputs, [t_model.get_layer(n).output for n in names])
-    tf_outputs = probe(tf.convert_to_tensor(x), training=False)
-    print("\n[1] Layer-by-layer forward comparison (same weights, same traces)")
-    for name, tf_val in zip(names, tf_outputs):
-        pt_val = seen[name]
-        if pt_val.ndim == 3:  # PT is N,C,T; TF is N,T,C
-            pt_val = pt_val.transpose(0, 2, 1)
-        compare(name, pt_val, tf_val.numpy())
+    for key, val in list(results.items()):
+        if val.ndim == 3:
+            results[key] = val.transpose(0, 2, 1)
+    return results
 
 
-def get_tf_gradient(var, variables, gradients):
-    for v, g in zip(variables, gradients):
-        if v is var:
-            if g is None:
-                raise ValueError(f"No TensorFlow gradient for {var.name}")
-            return g.numpy()
-    raise KeyError(f"TensorFlow variable not found: {var.name}")
+def sampled_gradient_indices(grad, seed=42):
+    """Random probes plus top-magnitude probes: do not miss sparse gradients."""
+    flat = np.asarray(grad).ravel()
+    n = len(flat)
+    rng = np.random.default_rng(seed)
+    random_ids = rng.choice(n, min(n, 512), replace=False)
+    if n <= 32:
+        top_ids = np.arange(n)
+    else:
+        top_ids = np.argpartition(np.abs(flat), -32)[-32:]
+    return np.unique(np.concatenate((random_ids, top_ids))).astype(np.int64)
 
 
-def gradient_and_step(p_model, t_model, layers, a, pos, neg, lr):
-    p_model.train()
-    pt_opt = torch.optim.RMSprop(p_model.parameters(), lr=lr, alpha=0.9, eps=1e-7,
-                                 momentum=0.0, centered=False)
-    tf_opt = tf.keras.optimizers.RMSprop(learning_rate=lr, rho=0.9, epsilon=1e-7,
-                                         momentum=0.0, centered=False)
+def run_torch(args):
+    import torch
+    import torch.nn.functional as F
+    from tools.model_zoo_pytorch import build_cnn_best
 
+    torch.set_num_threads(4)
+    torch.manual_seed(args.seed)
+    a, p, n = build_triplets(
+        args.data_path, *args.tracewindow, args.pool_size, args.triplets, args.seed
+    )
+    model = build_cnn_best((a.shape[1], 1), 256, classification=False)
+    if args.checkpoint:
+        state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(state, strict=True)
+        print("Checkpoint:", args.checkpoint)
+    else:
+        print("WARNING: no checkpoint provided; auditing an initialized network")
+    model.cpu().eval()
+    layers = torch_layers(model)
+
+    payload = {
+        "a": a, "p": p, "n": n,
+        "learning_rate": np.array(args.lr, dtype=np.float32),
+    }
+    for name, (module, conv) in layers.items():
+        payload[f"w__{name}"] = to_tf_layout(module.weight, conv).copy()
+        payload[f"b__{name}"] = module.bias.detach().cpu().numpy().copy()
+
+    activations = torch_activations(model, a, torch)
+    for name, val in activations.items():
+        payload[f"act__{name}"] = val.copy()
+
+    optimizer = torch.optim.RMSprop(
+        model.parameters(), lr=args.lr, alpha=0.9, eps=1e-7,
+        momentum=0.0, centered=False,
+    )
+    model.train()
     for step in (1, 2):
-        pt_opt.zero_grad()
-        ap = p_model(torch.from_numpy(a))
-        pp = p_model(torch.from_numpy(pos))
-        np_ = p_model(torch.from_numpy(neg))
-        pt_loss = cosine_triplet_loss(ap, pp, np_, alpha=0.5, reduction="mean")
-        pt_loss.backward()
+        optimizer.zero_grad()
+        aa, pp, nn = [model(torch.from_numpy(x)) for x in (a, p, n)]
+        pos_sim = F.cosine_similarity(aa, pp, dim=1)
+        neg_sim = F.cosine_similarity(aa, nn, dim=1)
+        loss = torch.relu(neg_sim - pos_sim + 0.5).mean()
+        payload[f"loss__{step}"] = np.asarray(loss.detach().item(), dtype=np.float64)
+        loss.backward()
+        for name, (module, conv) in layers.items():
+            grad = to_tf_layout(module.weight.grad, conv).copy()
+            idx = sampled_gradient_indices(grad, args.seed + step)
+            payload[f"gi__{step}__{name}"] = idx
+            payload[f"gv__{step}__{name}"] = grad.ravel()[idx].copy()
+            payload[f"gn__{step}__{name}"] = np.array(np.linalg.norm(grad.ravel().astype(np.float64)))
+            payload[f"gm__{step}__{name}"] = np.array(np.max(np.abs(grad)))
+        optimizer.step()
+        for name, (module, conv) in layers.items():
+            new_w = to_tf_layout(module.weight, conv)
+            idx = payload[f"gi__{step}__{name}"]
+            payload[f"wv__{step}__{name}"] = new_w.ravel()[idx].copy()
+            diff = new_w.astype(np.float64) - payload[f"w__{name}"].astype(np.float64) if step == 1 else None
+            if diff is not None:
+                payload[f"update_norm__{step}__{name}"] = np.array(np.linalg.norm(diff.ravel()))
+        print(f"Torch step {step}: triplet loss={loss.item():.8f}")
 
-        a_tf, p_tf, n_tf = (tf.convert_to_tensor(v) for v in (a, pos, neg))
+    output = Path(args.out)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(output, **payload)
+    print(f"Saved {output} ({output.stat().st_size / 1024**2:.1f} MiB)")
+    print("Next: switch to your TensorFlow environment and run --stage tf --out", output)
+
+
+def compare(label, actual, reference):
+    a, b = np.asarray(actual, dtype=np.float64), np.asarray(reference, dtype=np.float64)
+    if a.shape != b.shape:
+        print(f"{label:30s} SHAPE ERROR: {a.shape} vs {b.shape}")
+        return float('inf'), float('inf')
+    err = a - b
+    absmax = float(np.max(np.abs(err))) if a.size else 0.
+    rel = float(np.linalg.norm(err.ravel()) / max(np.linalg.norm(b.ravel()), 1e-12))
+    print(f"{label:30s} max_abs={absmax:.3e} relative_l2={rel:.3e}")
+    return absmax, rel
+
+
+def run_tf(args):
+    import tensorflow as tf
+    from tools.model_zoo import cnn_best
+
+    print("TensorFlow version:", tf.__version__)
+    tf.random.set_seed(args.seed)
+    if hasattr(tf.config, "threading"):
+        tf.config.threading.set_intra_op_parallelism_threads(4)
+        tf.config.threading.set_inter_op_parallelism_threads(2)
+
+    with np.load(args.out, allow_pickle=False) as saved:
+        data = {name: saved[name] for name in saved.files}
+    a, p, n = (data[x] for x in ("a", "p", "n"))
+    model = cnn_best((a.shape[1], 1), emb_size=256, classification=False)
+    for name in WEIGHT_LAYER_NAMES:
+        model.get_layer(name).set_weights([data[f"w__{name}"], data[f"b__{name}"]])
+
+    print("\n[1] Forward layer comparisons")
+    probe = tf.keras.Model(model.inputs, [model.get_layer(k).output for k in ACTIVATION_NAMES])
+    tf_outs = probe(tf.convert_to_tensor(a), training=False)
+    largest_forward_rel = 0.
+    for name, output in zip(ACTIVATION_NAMES, tf_outs):
+        _, relative = compare(name, output.numpy(), data[f"act__{name}"])
+        largest_forward_rel = max(largest_forward_rel, relative)
+
+    optimizer = tf.keras.optimizers.RMSprop(
+        learning_rate=float(data['learning_rate']),
+        rho=0.9, epsilon=1e-7, momentum=0.0, centered=False,
+    )
+    print("\nOptimizer:", optimizer.__class__.__name__, "rho=0.9 eps=1e-7")
+    max_loss_diff = 0.
+    for step in (1, 2):
         with tf.GradientTape() as tape:
-            at = t_model(a_tf, training=True)
-            pt = t_model(p_tf, training=True)
-            nt = t_model(n_tf, training=True)
-            # The SAME Dot(normalize=True) operation that professor's original code uses.
-            pos_sim = tf.keras.layers.Dot(axes=-1, normalize=True)([at, pt])
-            neg_sim = tf.keras.layers.Dot(axes=-1, normalize=True)([at, nt])
-            tf_loss = tf.reduce_mean(tf.nn.relu(neg_sim - pos_sim + 0.5))
-        vars_tf = t_model.trainable_variables
-        grads_tf = tape.gradient(tf_loss, vars_tf)
+            aa, pp, nn = (model(tf.convert_to_tensor(x), training=True) for x in (a, p, n))
+            pos_sim = tf.keras.layers.Dot(axes=-1, normalize=True)([aa, pp])
+            neg_sim = tf.keras.layers.Dot(axes=-1, normalize=True)([aa, nn])
+            loss = tf.reduce_mean(tf.nn.relu(neg_sim - pos_sim + 0.5))
+        variables = model.trainable_variables
+        grads = tape.gradient(loss, variables)
+        print(f"\n[2] Gradients for optimizer step {step}")
+        diff, _ = compare("triplet loss", loss.numpy(), data[f"loss__{step}"])
+        max_loss_diff = max(max_loss_diff, diff)
+        for name in WEIGHT_LAYER_NAMES:
+            tf_weight = model.get_layer(name).trainable_weights[0]
+            index = next((i for i, v in enumerate(variables) if v is tf_weight), None)
+            if index is None:
+                # Some Keras versions wrap the same variable in different objects.
+                matches = [i for i, v in enumerate(variables) if v.name == tf_weight.name]
+                if len(matches) != 1:
+                    raise RuntimeError(f"Cannot locate variable {tf_weight.name}")
+                index = matches[0]
+            grad = grads[index]
+            if grad is None:
+                raise RuntimeError(f"No gradient for TF layer {name}")
+            grad_np = np.asarray(grad.numpy())
+            idx = data[f"gi__{step}__{name}"]
+            compare("grad samples " + name, grad_np.ravel()[idx], data[f"gv__{step}__{name}"])
+            compare("grad norm " + name, np.linalg.norm(grad_np.ravel().astype(np.float64)), data[f"gn__{step}__{name}"])
+            compare("grad max  " + name, np.max(np.abs(grad_np)), data[f"gm__{step}__{name}"])
 
-        print(f"\n[2] Gradient comparison, fixed triplets, step {step}")
-        compare("triplet loss", pt_loss.detach().numpy(), tf_loss.numpy())
-        for name, pt_layer, is_conv in layers:
-            tf_layer = t_model.get_layer(name)
-            grad_t = get_tf_gradient(tf_layer.trainable_weights[0], vars_tf, grads_tf)
-            grad_p = to_tf_array(pt_layer.weight.grad, is_conv)
-            compare(f"grad {name}", grad_p, grad_t)
+        optimizer.apply_gradients(zip(grads, variables))
+        print(f"\n[3] Updated weights for optimizer step {step}")
+        for name in WEIGHT_LAYER_NAMES:
+            weight = model.get_layer(name).get_weights()[0]
+            idx = data[f"gi__{step}__{name}"]
+            compare("weight samples " + name, weight.ravel()[idx], data[f"wv__{step}__{name}"])
 
-        tf_opt.apply_gradients(zip(grads_tf, vars_tf))
-        pt_opt.step()
-        print(f"\n[3] Updated-weight comparison after RMSprop step {step}")
-        for name, pt_layer, is_conv in layers:
-            wtf = t_model.get_layer(name).get_weights()[0]
-            compare(f"updated {name}", to_tf_array(pt_layer.weight, is_conv), wtf)
+    print("\nAUDIT FINISHED. Inspect earliest significant discrepancy.")
+    print("Note: same checkpoint, fixed triplets, optimizer state starts at zero in BOTH frameworks.")
+    print("This does not verify negative mining, batch ordering, or representation generalization.")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_path", required=True)
-    parser.add_argument("--tracewindow", type=int, nargs=2, default=[1800, 2800])
+    parser.add_argument("--stage", choices=("torch", "tf"), required=True)
+    parser.add_argument("--out", default="audit/tp_golden.npz")
+    parser.add_argument("--data_path", default=None)
+    parser.add_argument("--checkpoint", default=None)
+    parser.add_argument("--tracewindow", nargs=2, type=int, default=[1800, 2800])
     parser.add_argument("--pool_size", type=int, default=1000)
     parser.add_argument("--triplets", type=int, default=12)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
-
-    torch.set_num_threads(4)
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    tf.random.set_seed(args.seed)
-    print("TensorFlow:", tf.__version__, "PyTorch:", torch.__version__)
-    a, p, n = triplets_from_real_traces(args.data_path, *args.tracewindow,
-                                       args.pool_size, args.triplets, args.seed)
-    pt, tf_model, layers = setup_models(a.shape[1], args.checkpoint)
-    forward_intermediates(pt, tf_model, a)
-    gradient_and_step(pt, tf_model, layers, a, p, n, args.lr)
-    print("\nCompleted. Large first-layer errors imply a forward/model mismatch; ")
-    print("first gradient-only errors imply loss/backward mismatch; ")
-    print("first post-update errors imply optimizer/update mismatch.")
-    print("A match DOES NOT prove miners, data selection, or generalization are correct.")
+    if args.stage == "torch":
+        if not args.data_path:
+            parser.error("--stage torch requires --data_path")
+        run_torch(args)
+    else:
+        run_tf(args)
 
 
 if __name__ == "__main__":
     main()
+
