@@ -241,11 +241,12 @@ def run_tf(args):
         _, relative = compare(name, output.numpy(), data[f"act__{name}"])
         largest_forward_rel = max(largest_forward_rel, relative)
 
-    optimizer = tf.keras.optimizers.RMSprop(
-        learning_rate=float(data['learning_rate']),
-        rho=0.9, epsilon=1e-7, momentum=0.0, centered=False,
-    )
-    print("\nOptimizer:", optimizer.__class__.__name__, "rho=0.9 eps=1e-7")
+    lr = float(data["learning_rate"])
+    rms_slots = [
+        tf.Variable(tf.zeros_like(v), trainable=False)
+        for v in model.trainable_variables
+    ]
+    print("\nOptimizer: TF 2.3 style RMSprop")
     max_loss_diff = 0.
     for step in (1, 2):
         with tf.GradientTape() as tape:
@@ -276,7 +277,9 @@ def run_tf(args):
             compare("grad norm " + name, np.linalg.norm(grad_np.ravel().astype(np.float64)), data[f"gn__{step}__{name}"])
             compare("grad max  " + name, np.max(np.abs(grad_np)), data[f"gm__{step}__{name}"])
 
-        optimizer.apply_gradients(zip(grads, variables))
+        for v, g, rms in zip(variables, grads, rms_slots):
+            rms.assign(0.9 * rms + 0.1 * tf.square(g))
+            v.assign_sub(lr * g / (tf.sqrt(rms) + 1e-7))
         print(f"\n[3] Updated weights for optimizer step {step}")
         for name in WEIGHT_LAYER_NAMES:
             weight = model.get_layer(name).get_weights()[0]
