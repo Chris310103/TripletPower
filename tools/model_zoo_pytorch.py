@@ -65,7 +65,7 @@ class CNN_Best(nn.Module):
         else:
             self.output_layer=nn.Sequential(
                 nn.Linear(4096, self.output_dim),
-                nn.ReLU(inplace=True)
+                # nn.ReLU(inplace=True)
                 )
         # keras-stile weight initialization
         self.apply(self.init_keras_weights)
