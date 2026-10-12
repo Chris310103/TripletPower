@@ -264,7 +264,7 @@ def train(opts, x, y, model_dir):
     # compiling the triplet model
     model_triplet.compile(loss=identity_loss, optimizer=opt)
     # At first epoch we don't generate hard triplets
-    gen_hard = SemiHardTripletGenerator(Xa_train, Xp_train, batch_size, all_traces, all_traces_train_idx, label2IdDict, None)
+    gen_hard = SemiHardTripletGenerator(Xa_train, Xp_train, batch_size, all_traces, all_traces_train_idx, Id2Label, None)
     csv_logger = CSVLogger(model_dir + 'Training_Log_{}.csv'.format(description), append=True, separator=';')
     callback_list = [csv_logger]
     print('[LOG] -- Training a feature extractor ...')
@@ -295,7 +295,7 @@ def train(opts, x, y, model_dir):
             shared_conv2.save(model_path)
             max_loss = tmp_loss
 
-        gen_hard = SemiHardTripletGenerator(Xa_train, Xp_train, batch_size, all_traces, all_traces_train_idx, label2IdDict, shared_conv2)
+        gen_hard = SemiHardTripletGenerator(Xa_train, Xp_train, batch_size, all_traces, all_traces_train_idx, Id2Label, shared_conv2)
 
     loss_file = os.path.join(model_dir, 'loss.png')
     plot_figure(x_list, loss_list, loss_file, 'loss curve', 'epoch', 'loss')
