@@ -190,7 +190,7 @@ def train(opts, x, y, model_dir):
     number_epoch = opts.epochs
     nsamples = opts.nsamples
     emb_size = 256
-    learning_rate = 0.00001
+    learning_rate = 0.000001
     leakage_model = opts.leakage_model
     target_byte = opts.target_byte
 
