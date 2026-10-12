@@ -76,7 +76,7 @@ def build_positive_pairs(class_id_range, classes_to_ids):
 # Build a loss which doesn't take into account the y_true, as# Build
 # we'll be passing only 0
 def identity_loss(y_true, y_pred):
-    return K.mean(y_pred - 0 * y_true)
+    return K.mean(y_pred)
 
 
 # The triplet loss
@@ -84,7 +84,7 @@ def cosine_triplet_loss(X):
     _alpha = float(alpha_value)
     positive_sim, negative_sim = X
     losses = K.maximum(0.0, negative_sim - positive_sim + _alpha)
-    return K.mean(losses)
+    return losses
 
 
 # ------------------- Hard Triplet Mining -----------
