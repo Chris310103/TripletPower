@@ -155,8 +155,7 @@ class SemiHardTripletGenerator():
             traces_a = self.Xa[self.cur_train_index: self.cur_train_index + self.batch_size]
             traces_p = self.Xp[self.cur_train_index: self.cur_train_index + self.batch_size]
             traces_n = build_negatives(traces_a, traces_p, self.similarities, self.neg_traces_idx, self.id_to_classid)
-            yield ([self.traces[traces_a], self.traces[traces_p], self.traces[traces_n]],
-                    np.zeros( shape=(traces_a.shape[0]) ))
+            yield ((self.traces[traces_a], self.traces[traces_p], self.traces[traces_n]), np.zeros(shape=(traces_a.shape[0])))
 
 
 def getClsIdDict(allData, allLabel, sampleNumLimit):
@@ -281,7 +280,8 @@ def train(opts, x, y, model_dir):
         # adjust learning rate
         if ((epoch+1) % 40) == 0:
             new_learning_rate = learning_rate / 2
-            K.set_value(model_triplet.optimizer.learning_rate, new_learning_rate)
+            # K.set_value(model_triplet.optimizer.learning_rate, new_learning_rate)
+            model_triplet.optimizer.learning_rate.assign(new_learning_rate)
             print('[LOG] -- learning rate adjust from {:f} to {:f}'.format(learning_rate, new_learning_rate))
             learning_rate = new_learning_rate
 
