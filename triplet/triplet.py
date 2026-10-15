@@ -382,7 +382,7 @@ def main(opts):
         print('[LOG -- RUN TIME] -- triplet nn training time is {:f}'.format(end-start))
 
     # extract features for train data
-    train_x = train_x[:, : np.newaxis]
+    train_x = train_x[:, :, np.newaxis]
     train_x_feat = feat_model.predict(train_x)
     print('{lOG} -- x train feat shape is: ', train_x_feat.shape)
 
