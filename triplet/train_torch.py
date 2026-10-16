@@ -123,8 +123,9 @@ def main():
         model=build_cnn_best(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
     else:
         model=build_cnn_best_norm(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
+    
     model=model.to(device)
-
+    
     # =========================================================================
     # Split Validation data and set its Function
     # =========================================================================
