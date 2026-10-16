@@ -49,7 +49,6 @@ def build_positive_pairs(class_id_range, classes_to_ids):
     # that each element in pairs in term of its index is randomly ordered.
     return np.array(listX1)[perm], np.array(listX2)[perm]
 
-
 def build_class_index_maps(labels):
     label_2_id = defaultdict(list)
     id_2_label = {}

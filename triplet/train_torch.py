@@ -113,9 +113,12 @@ def main():
     # =========================================================================
     # Build positive pairs
     # =========================================================================
-    a_ids, p_ids=build_positive_pairs(sorted(label_2_id.keys()), label_2_id)
-    print("Number of positive pairs:", len(a_ids))
+    tf_class_order=list(dict.fromkeys(int(label) for label in labels_n))
+    a_ids, p_ids=build_positive_pairs(tf_class_order, label_2_id)
 
+    print("TF class order:",tf_class_order)
+    print("Number of positive pairs:",len(a_ids))
+    print("First 10 positive pairs:",list(zip(a_ids[:10],p_ids[:10])))
     # =========================================================================
     # Build Tripletpower embedding network
     # =========================================================================
@@ -125,7 +128,7 @@ def main():
         model=build_cnn_best_norm(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
     
     model=model.to(device)
-    
+
     # =========================================================================
     # Split Validation data and set its Function
     # =========================================================================
