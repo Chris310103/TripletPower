@@ -11,7 +11,8 @@ from tqdm.auto import tqdm
 
 from tools.ascad_loader import load_dataset, dissemble_data_dict
 from tools.loadData import get_labels
-from tools.model_zoo_pytorch import CNN_Best
+from tools.model_zoo_pytorch import CNN_Best, CNN_Best_Norm
+from tools.tf_rmsprop import RMSpropTF
 
 def build_pos_pairs_for_id(classid, classid_to_ids):  # classid --> e.g. 0
     # pos_pairs is actually the combination C(10,2)
@@ -473,7 +474,8 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
     model.to(device)
     neg_ids=list(set(a_ids)|set(p_ids))
 
-    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.9, eps=1e-7, momentum=0.0, centered=False, weight_decay=0.0)
+    optimizer=RMSpropTF(model.parameters(), lr=learning_rate, rho=0.9, eps=1e-7)
+    print("Optimizer:", type(optimizer).__name__)
     dataset=AnchorPositiveDataset(a_ids, p_ids)
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)

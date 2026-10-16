@@ -7,7 +7,7 @@ from sklearn.metrics import accuracy_score
 
 from tools.ascad_loader import load_dataset, dissemble_data_dict
 from tools.loadData import get_labels   
-from tools.model_zoo_pytorch import build_cnn_best
+from tools.model_zoo_pytorch import build_cnn_best, build_cnn_best_norm
 from triplet.triplet_pytorch import (
     getCLSidDict,
     build_positive_pairs,
@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument('--rank_name', type=str, required=True, help='output rank folder name')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--backbone', type=str, choices={"cnn_best", "cnn_best_norm"}, default="cnn_best")
     parser.add_argument('--target_byte', type=int, default=2)
     parser.add_argument("--sample_num_limit", type=int, default=300)
     parser.add_argument("--trace_num_max", type=int, default=500)
@@ -118,7 +119,10 @@ def main():
     # =========================================================================
     # Build Tripletpower embedding network
     # =========================================================================
-    model=build_cnn_best(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
+    if args.backbone == "cnn_best":
+        model=build_cnn_best(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
+    else:
+        model=build_cnn_best_norm(input_shape=(x_limited.shape[1], 1), emb_size=256, classification=False)
     model=model.to(device)
 
     # =========================================================================
