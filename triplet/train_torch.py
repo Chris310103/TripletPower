@@ -113,12 +113,9 @@ def main():
     # =========================================================================
     # Build positive pairs
     # =========================================================================
-    tf_class_order=list(dict.fromkeys(int(label) for label in labels_n))
-    a_ids, p_ids=build_positive_pairs(tf_class_order, label_2_id)
+    a_ids,p_ids=build_positive_pairs(sorted(label_2_id.keys()),label_2_id)
 
-    print("TF class order:",tf_class_order)
     print("Number of positive pairs:",len(a_ids))
-    print("First 10 positive pairs:",list(zip(a_ids[:10],p_ids[:10])))
     # =========================================================================
     # Build Tripletpower embedding network
     # =========================================================================

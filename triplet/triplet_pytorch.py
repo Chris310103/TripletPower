@@ -473,7 +473,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
     model.to(device)
     neg_ids=list(set(a_ids)|set(p_ids))
 
-    optimizer=RMSpropTF(model.parameters(), lr=learning_rate, rho=0.9, eps=1e-7)
+    optimizer=torch.optim.RMSprop(model.parameters(), lr=learning_rate, alpha=0.99, eps=1e-8, weight_decay=0.0, momentum=0.0, centered=False, foreach=False)
     print("Optimizer:", type(optimizer).__name__)
     dataset=AnchorPositiveDataset(a_ids, p_ids)
 

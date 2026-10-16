@@ -104,6 +104,7 @@ class CNN_Best(nn.Module):
         y=self.output_layer(h)
 
         return y
+    
 class CNN_Best_Norm(nn.Module):
     def __init__(self, input_channels: int = 1, input_length: int = 700, output_dim: int = 256, classification=False):
         super().__init__()
