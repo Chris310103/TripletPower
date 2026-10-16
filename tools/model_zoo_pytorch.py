@@ -104,12 +104,132 @@ class CNN_Best(nn.Module):
         y=self.output_layer(h)
 
         return y
+class CNN_Best_Norm(nn.Module):
+    def __init__(self, input_channels: int = 1, input_length: int = 700, output_dim: int = 256, classification=False):
+        super().__init__()
+
+        self.input_channels=input_channels
+        self.input_length=input_length
+        self.output_dim=output_dim
+        self.classification = classification
+
+        self.feature_extractor=nn.Sequential(
+            # block 1
+            nn.ConstantPad1d((4,5),0),
+            nn.Conv1d(input_channels, 64, kernel_size=11, stride=2, padding=0),
+            nn.ReLU(inplace=True),
+            nn.AvgPool1d(kernel_size=2, stride=2),
+            nn.BatchNorm1d(64, eps=1e-3, momentum=0.01),
+
+            # block 2
+            nn.Conv1d(64, 128, kernel_size=11, stride=1, padding=5),
+            nn.ReLU(inplace=True),  
+            nn.AvgPool1d(kernel_size=2, stride=2),
+            nn.BatchNorm1d(128, eps=1e-3, momentum=0.01),
+
+            # block 3
+            nn.Conv1d(128, 256, kernel_size=11, stride=1, padding=5),
+            nn.ReLU(inplace=True),  
+            nn.AvgPool1d(kernel_size=2, stride=2),
+            nn.BatchNorm1d(256, eps=1e-3, momentum=0.01),
+
+            # block 4
+            nn.Conv1d(256, 512, kernel_size=11, stride=1, padding=5),
+            nn.ReLU(inplace=True),  
+            nn.AvgPool1d(kernel_size=2, stride=2),
+            nn.BatchNorm1d(512, eps=1e-3, momentum=0.01),
+
+            # block 5
+            nn.Conv1d(512, 512, kernel_size=11, stride=1, padding=5),
+            nn.ReLU(inplace=True),  
+            nn.AvgPool1d(kernel_size=2, stride=2),
+            nn.BatchNorm1d(512, eps=1e-3, momentum=0.01),
+        )
+
+        self.feature_extractor.eval()
+        with torch.no_grad():
+            dummy_input=torch.zeros(1, self.input_channels, self.input_length)
+            dummy_output=self.feature_extractor(dummy_input)
+            dummy_output=dummy_output.transpose(1,2)
+            flatten_size=dummy_output.reshape(1, -1).size(1)
+
+            self.flatten_size=flatten_size
+        self.feature_extractor.train()
+        
+        self.fc=nn.Sequential(
+            nn.Flatten(),
+            # first layer
+            nn.Linear(flatten_size, 4096),
+            nn.ReLU(inplace=True),
+
+            # second layer
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+        )
+
+        if self.classification:
+            self.output_layer=nn.Linear(4096, self.output_dim)
+        else:
+            self.output_layer=nn.Sequential(
+                nn.Linear(4096, self.output_dim),
+                nn.ReLU(inplace=True)
+                )
+        # keras-stile weight initialization
+        self.apply(self.init_keras_weights)
+
+    def init_keras_weights(self, module):
+        if isinstance(module, (nn.Conv1d, nn.Linear)):
+            nn.init.xavier_uniform_(module.weight)
+
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+    def to_channels_first(self, x: torch.Tensor) -> torch.Tensor:
+            if x.ndim != 3:
+                raise ValueError(
+                    f"Expected 3D input, got {tuple(x.shape)}"
+                )
+    
+            if x.shape[-1] == self.input_channels:
+                return x.transpose(1, 2)
+    
+            if x.shape[1] == self.input_channels:
+                return x
+    
+            raise ValueError(
+                f"Unexpected input shape: {tuple(x.shape)}"
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x=self.to_channels_first(x)
+
+        h=self.feature_extractor(x)
+        h=h.transpose(1, 2)
+
+        h = self.fc(h)
+
+        y=self.output_layer(h)
+
+        return y
 
 def build_cnn_best(input_shape, emb_size=256, classification=False):
     input_length=input_shape[0]
     input_channels=input_shape[1]
 
     model = CNN_Best(
+        input_channels=input_channels,
+        input_length=input_length,
+        output_dim=emb_size,
+        classification=classification,
+    )
+
+    return model
+
+def build_cnn_best_norm(input_shape, emb_size=256, classification=False):
+    input_length=input_shape[0]
+    input_channels=input_shape[1]
+
+    model = CNN_Best_Norm(
         input_channels=input_channels,
         input_length=input_length,
         output_dim=emb_size,
