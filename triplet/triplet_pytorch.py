@@ -95,8 +95,8 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
  
-    # selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
-    selected_n_indices=np.arange(n_traces, dtype=np.int64)
+    selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
+    # selected_n_indices=np.arange(n_traces, dtype=np.int64)
     print("Selected profiling indices:", selected_n_indices[:20], "...", selected_n_indices[-1])
 
     x_n=x[selected_n_indices]
@@ -503,10 +503,10 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             legacy_label_2_id=legacy_label_2_id
         )
 
-        steps=len(dataset)//batch_size
-        tf_batches=[list(range(i,min(i+batch_size,len(dataset)))) for i in range(batch_size,(steps+1)*batch_size,batch_size)]
-        loader=DataLoader(dataset, batch_sampler=tf_batches, collate_fn=collator_fn)
-        # loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
+        # steps=len(dataset)//batch_size
+        # tf_batches=[list(range(i,min(i+batch_size,len(dataset)))) for i in range(batch_size,(steps+1)*batch_size,batch_size)]
+        # loader=DataLoader(dataset, batch_sampler=tf_batches, collate_fn=collator_fn)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
         loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
 
