@@ -95,8 +95,8 @@ def getCLSidDict(data_path, n_traces, attack_size, sample_num_limit, leakage_mod
     if n_traces > len(x):
         raise ValueError("the number of n_traces bigger than that of x")
  
-    # selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
-    selected_n_indices=np.arange(n_traces, dtype=np.int64)
+    selected_n_indices=np.random.choice(len(x), size=n_traces, replace=False)
+    # selected_n_indices=np.arange(n_traces, dtype=np.int64)
     print("Selected profiling indices:", selected_n_indices[:20], "...", selected_n_indices[-1])
 
     x_n=x[selected_n_indices]
