@@ -237,7 +237,7 @@ def train(opts, x, y, model_dir):
 
     opt = RMSprop(learning_rate=learning_rate)
     # opt = SGD(learning_rate=learning_rate, decay=0.0000001)
-    shared_conv2 = model_zoo.cnn_best(input_shape=(all_traces.shape[1], 1), emb_size=emb_size, classification=False)
+    shared_conv2 = model_zoo.cnn_best_norm(input_shape=(all_traces.shape[1], 1), emb_size=emb_size, classification=False)
     anchor = Input((all_traces.shape[1], 1), name='anchor')
     positive = Input((all_traces.shape[1], 1), name='positive')
     negative = Input((all_traces.shape[1], 1), name='negative')

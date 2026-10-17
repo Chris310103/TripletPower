@@ -68,7 +68,8 @@ def cnn_best_norm(input_shape, emb_size=256, classification=True):
         return model
     else:
         embeddings = Dense(emb_size, activation='relu', name='predictions')(x)
-        return embeddings
+        model=Model(inp, embeddings, name="triplet_norm")
+        return model
 
 
 ### CNN Best model
