@@ -116,8 +116,10 @@ class CNN_Best_Norm(nn.Module):
 
         self.feature_extractor=nn.Sequential(
             # block 1
-            nn.ConstantPad1d((4,5),0),
-            nn.Conv1d(input_channels, 64, kernel_size=11, stride=2, padding=0),
+            # nn.ConstantPad1d((4,5),0),
+            nn.ConstantPad1d((5,5),0),
+            # nn.Conv1d(input_channels, 64, kernel_size=11, stride=2, padding=0),
+            nn.Conv1d(input_channels, 64, kernel_size=11, stride=1, padding=0),
             nn.ReLU(inplace=True),
             nn.AvgPool1d(kernel_size=2, stride=2),
             nn.BatchNorm1d(64, eps=1e-3, momentum=0.01),
