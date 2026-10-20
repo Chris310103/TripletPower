@@ -453,8 +453,9 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
         a,p,n=a.to(device), p.to(device), n.to(device)
         optimizer.zero_grad()
 
-        embeddings=model(torch.cat([a,p,n], dim=0))
-        anchor, positive, negative=embeddings.chunk(3, dim=0)
+        anchor=model(a)
+        positive=model(p)
+        negative=model(n)
 
         loss=cosine_triplet_loss(anchor, positive, negative, alpha_value)
 
