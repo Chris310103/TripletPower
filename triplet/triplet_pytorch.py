@@ -444,7 +444,7 @@ class TripletBatchCollator():
         return (torch.as_tensor(a_batch, dtype=torch.float32).unsqueeze(-1), torch.as_tensor(p_batch, dtype=torch.float32).unsqueeze(-1), \
                 torch.as_tensor(n_batch, dtype=torch.float32).unsqueeze(-1))
 
-def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5):
+def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5, weight_decay=0.0):
     model.train()
     running_loss=0.0
     progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
@@ -461,13 +461,21 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
         loss.backward()
         optimizer.step()
+        if weight_decay>0:
+            with torch.no_grad():
+                for group in optimizer.param_groups:
+                    factor=1.0-group["lr"]*weight_decay
+
+                    for param in group["params"]:
+                        if param.grad is not None and param.ndim > 1:
+                            param.mul_(factor)
         running_loss+=loss.item()
 
     return running_loss/len(dataloader)
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,
                 learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
-                validation_fn=None, val_every_steps=100,): 
+                validation_fn=None, val_every_steps=100, weighted_decay=0.0): 
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -508,7 +516,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         # loader=DataLoader(dataset, batch_sampler=tf_batches, collate_fn=collator_fn)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
+        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, weight_decay=weighted_decay)
 
         previous_step=global_step
         global_step+=len(loader)

@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("--val_every_steps", type=int, default=100)
     parser.add_argument("--val_rank_traces", type=int, default=1000)
     parser.add_argument("--val_rank_runs", type=int, default=20)
+    parser.add_argument("--weight_decay", type=float, default=0.0)
 
     return parser.parse_args()
     
@@ -213,6 +214,7 @@ def main():
         legacy_label_2_id=label_2_id,
         validation_fn=validation_fn,
         val_every_steps=args.val_every_steps,
+        weighted_decay=args.weight_decay,
     )   
 
     if args.val_size > 0:
