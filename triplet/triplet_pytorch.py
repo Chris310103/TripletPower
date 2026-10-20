@@ -475,7 +475,7 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,
                 learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
-                validation_fn=None, val_every_steps=100, weighted_decay=0.0): 
+                validation_fn=None, val_every_steps=100, weight_decay=0.0): 
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -516,7 +516,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
         # loader=DataLoader(dataset, batch_sampler=tf_batches, collate_fn=collator_fn)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, weight_decay=weighted_decay)
+        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, weight_decay=weight_decay)
 
         previous_step=global_step
         global_step+=len(loader)
