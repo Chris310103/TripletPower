@@ -103,10 +103,19 @@ def main():
     # ============================================================
     # Prepare profiling data
     # ============================================================
+    if args.profiling_seed is not None:
+        random.seed(args.profiling_seed)
+        np.random.seed(args.profiling_seed)
+
     selection_rng_state=np.random.get_state()
+
     x_n, labels_n, x_limited, labels_limited, label_2_id, id_2_label = \
         getCLSidDict(data_path=data_path, n_traces=n_traces, attack_size=args.attack_size,\
         sample_num_limit=sample_num_limit, leakage_model=leakage_model, target_byte=target_byte, tracewindow=args.tracewindow)
+
+    if args.profiling_seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
 
     print("All N profiling traces:", x_n.shape)
     print("Triplet subset:", x_limited.shape)
