@@ -38,6 +38,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--learning_rate', type=float, default=1e-5)
     parser.add_argument("--negative_mode", type=str, choices=[ "current", "true_semihard"], default="current",)
+    parser.add_argument("--dynamic_u", action="store_true", help="Enable dynamic per-class trace resampling")
 
     return parser.parse_args()
     
@@ -137,6 +138,11 @@ def main():
         learning_rate=lr,
         alpha_value=alpha_value,
         negative_mode=(args.negative_mode),
+        dynamic_u=args.dynamic_u,
+        full_traces=x_n,
+        full_labels=labels_n,
+        sample_num_limit=sample_num_limit,
+        sampling_seed=seed,
     )   
 
     # ============================  =============================================

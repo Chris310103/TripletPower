@@ -297,7 +297,8 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
     return running_loss/len(dataloader)
 
 def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, 
-                    batch_size=100, learning_rate=1e-5, alpha_value=0.5, negative_mode="current"):
+                    batch_size=100, learning_rate=1e-5, alpha_value=0.5, negative_mode="current",
+                    dynamic_u=False, full_traces=None, full_labels=None, sample_num_limit=300, sampling_seed=42):
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -312,10 +313,29 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
 
+    if dynamic_u:
+        if full_traces is None or full_labels is None:
+            raise ValueError("Dynamic U requires full_traces and full_labels")
+
+        slots={h:np.array([i for i, label in id_2_label.items() if label==h], dtype=np.int64) for h in sorted(set(id_2_label.values()))}
+        pools={h:np.flatnonzero(full_labels==h).tolist() for h in slots}
+        subset_rng=random.Random(sampling_seed)
+
     epoch_bar = tqdm(range(epochs), desc="TripletPower", dynamic_ncols=True)
 
     for epoch in epoch_bar:
+        epoch_traces=all_traces
 
+        if dynamic_u and epoch>0:
+            epoch_traces=all_traces.copy()
+
+            for h,positions in slots.items():
+                if len(pools[h])>sample_num_limit:
+                    chosen=subset_rng.sample(pools[h],len(positions))
+                    epoch_traces[positions]=full_traces[chosen]
+
+            all_traces_tensor=torch.from_numpy(epoch_traces).float().unsqueeze(-1).to(device)
+        
         if epoch==0:
             all_sims=None
 
@@ -324,7 +344,7 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             all_sims=build_similarities(model, all_traces_tensor)
 
         collator_fn=TripletBatchCollator(
-            all_traces, neg_ids, id_2_label,
+            epoch_traces, neg_ids, id_2_label,
             alpha_value=alpha_value,
             all_sims=all_sims,
             negative_mode=negative_mode,
