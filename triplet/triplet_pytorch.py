@@ -156,236 +156,71 @@ def build_similarities(model, traces: torch.Tensor, batch_size=1024):
 def intersect(a,b):
     return list(set(a) & set(b))
 
-def build_negatives(a_ids, p_ids, neg_ids, id_2_label, 
-                alpha_value=0.5, all_sims=None, num_retries: int=50, negative_mode="current", valid_neg_ids_by_class=None,
-                stats=None, legacy_label_2_id=None):
-    if negative_mode not in {"current", "true_semihard", "random_valid", "tf_legacy"}:
-        raise ValueError(f"unsupported negative_mode: {negative_mode}")
+def build_negatives(a_ids, p_ids, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, num_retries=50, negative_mode="current", valid_neg_ids_by_class=None):
 
-    if stats is None:
-        stats=defaultdict(int)
-
-    if negative_mode == "tf_legacy":
-
-        if legacy_label_2_id is None:
-            raise ValueError(
-                "tf_legacy mode requires legacy_label_2_id"
-            )
-
-        final_neg = []
-
-        if all_sims is None:
-
-            sampled = random.sample(neg_ids, len(a_ids))
-
-            for a_id, neg_id in zip(a_ids, sampled):
-                stats["total"] += 1
-                stats["legacy_random"] += 1
-                if (id_2_label[neg_id] == id_2_label[a_id]):
-                    stats["same_class_negative"] += 1
-
-            return sampled
-
-        for a_id, p_id in zip(a_ids, p_ids):
-            legacy_anchor_class = ( legacy_label_2_id[a_id] )
-
-            pos_sim = all_sims[ a_id, p_id, ]
-
-            possible_ids = np.where( ( all_sims[a_id] + alpha_value ) > pos_sim )[0]
-
-            possible_ids = intersect( neg_ids, possible_ids, )
-
-            neg_id = None
-
-            for _ in range(num_retries):
-
-                if len(possible_ids) == 0:
-                    break
-
-                candidate = random.choice( possible_ids )
-                # EXACT legacy-source class test
-                if ( legacy_label_2_id[candidate] != legacy_anchor_class ):
-                    neg_id = candidate
-                    stats["legacy_candidate"] += 1
-                    break
-
-            # Old unrestricted fallback
-            if neg_id is None:
-
-                neg_id = random.choice(neg_ids)
-
-                stats["legacy_fallback"] += 1
-
-            final_neg.append(int(neg_id))
-
-            stats["total"] += 1
-
-            # ====================================================
-            # Everything below is DIAGNOSTIC ONLY.
-            # Does NOT change selected negative.
-            # ====================================================
-
-            actual_anchor_class = (id_2_label[a_id])
-
-            actual_neg_class = (id_2_label[neg_id])
-            if (actual_anchor_class == actual_neg_class): 
-                stats["same_class_negative"] += 1
-
-            neg_sim = all_sims[a_id, neg_id]
-
-            if neg_sim >= pos_sim:
-                stats["hard"] += 1
-
-            elif ( neg_sim > pos_sim - alpha_value):
-                stats["semihard"] += 1
-
-            else:
-                stats["easy"] += 1
-
-        assert (len(final_neg) == len(a_ids))
-
-        return final_neg
+    if negative_mode not in {"current", "true_semihard"}:
+        raise ValueError(f"Unsupported negative mode: {negative_mode}")
 
     if valid_neg_ids_by_class is None:
         classes=set(id_2_label.values())
-
-        valid_neg_ids_by_class={class_id:[idx for idx in neg_ids if id_2_label[idx] != class_id] for class_id in classes}    
-
-    final_neg=[]    
+        valid_neg_ids_by_class={c:[idx for idx in neg_ids if id_2_label[idx]!=c] for c in classes}
 
     def choose_random_valid(anchor_class):
         candidates=valid_neg_ids_by_class[anchor_class]
 
         if len(candidates)==0:
-            raise RuntimeError(f"no valid negative exists for class {anchor_class}")
+            raise RuntimeError(f"No valid negative exists for class {anchor_class}")
 
         return random.choice(candidates)
-    # ============================================================
-    # Epoch 0:
-    # no similarity matrix yet
-    # ============================================================
+
+    # First epoch: no similarity matrix
     if all_sims is None:
-        if negative_mode == "current":
-            sampled=random.sample(neg_ids, len(a_ids))
+        if negative_mode=="current":
+            return random.sample(neg_ids,len(a_ids))
 
-            for a_id, neg_id in zip(a_ids, sampled,):
-                stats['total']+=1
-                stats["random_unfiltered"]+=1
+        return [choose_random_valid(id_2_label[a_id]) for a_id in a_ids]
 
-                if (id_2_label[neg_id] == id_2_label[a_id]): 
-                    stats["same_class_negative"] += 1
+    final_neg=[]
 
-            return sampled
+    for a_id,p_id in zip(a_ids,p_ids):
+        anchor_class=id_2_label[a_id]
+        pos_sim=all_sims[a_id,p_id]
 
-        for a_id in a_ids:
+        if negative_mode=="current":
+            possible_ids=np.where((all_sims[a_id]+alpha_value)>pos_sim)[0]
+            possible_ids=intersect(possible_ids,neg_ids)
 
-            anchor_class = id_2_label[a_id]
-            neg_id = choose_random_valid(anchor_class)
+            neg_id=None
+
+            for _ in range(num_retries):
+                if len(possible_ids)==0:
+                    break
+
+                candidate=random.choice(possible_ids)
+
+                if id_2_label[candidate]!=anchor_class:
+                    neg_id=candidate
+                    break
+
+            if neg_id is None:
+                neg_id=random.choice(neg_ids)
 
             final_neg.append(neg_id)
 
-            stats["total"] += 1
-            stats["random_valid"] += 1
-        return final_neg    
-
-    # ============================================================
-    # Epoch >= 1
-    # ============================================================
-    for a_id, p_id in zip(a_ids, p_ids):
-        anchor_class=id_2_label[a_id]
-        pos_sim=all_sims[a_id, p_id]
-
-        # ========================================================
-        # MODE A:
-        # CURRENT IMPLEMENTATION
-        # ========================================================
-        if negative_mode=="current":
-            possible_ids=np.where((all_sims[a_id]+alpha_value) > pos_sim)[0]
-            possible_ids=intersect(possible_ids, neg_ids)
-
-            appended=False
-
-            for _ in range(num_retries):
-                if len(possible_ids) == 0:
-                    break
-
-                neg_id=random.choice(possible_ids)
-
-                if (id_2_label[neg_id]!=anchor_class):
-                    final_neg.append(neg_id)
-                    neg_sim=all_sims[a_id, neg_id]
-
-                    stats["total"]+=1
-
-                    if neg_sim >= pos_sim:
-                        stats["hard"]+=1
-                    else:
-                        stats["semihard"]+=1
-
-                    appended=True
-                    break
-
-            if not appended:
-                neg_id=random.choice(neg_ids)
-                final_neg.append(neg_id)
-                stats["total"]+=1
-                stats["fallback_random"]+=1
-
-                if id_2_label[neg_id]==anchor_class:
-                    stats["same_class_negative"]+=1
-        # ========================================================
-        # MODE B:
-        # TRUE SEMI-HARD
-        #
-        # s_pos - alpha < s_neg < s_pos
-        # ========================================================
-        elif(negative_mode=="true_semihard"):
+        elif negative_mode=="true_semihard":
             similarities=all_sims[a_id]
-            possible_ids=np.where(((similarities+alpha_value)>pos_sim) & (similarities < pos_sim))[0]
+            possible_ids=np.where(((similarities+alpha_value)>pos_sim)&(similarities<pos_sim))[0]
+            possible_ids=intersect(possible_ids,neg_ids)
+            possible_ids=[idx for idx in possible_ids if id_2_label[idx]!=anchor_class]
 
-            possible_ids=intersect(possible_ids, neg_ids)
-
-            possible_ids=[idx for idx in possible_ids if (id_2_label[idx]!=anchor_class)]
-
-            if len(possible_ids) > 0:
+            if len(possible_ids)>0:
                 neg_id=random.choice(possible_ids)
-
-                final_neg.append(neg_id)
-
-                stats["total"] += 1
-                stats["semihard"] += 1
-
             else:
-                neg_id = choose_random_valid(
-                    anchor_class
-                )
+                neg_id=choose_random_valid(anchor_class)
 
-                final_neg.append(
-                    neg_id
-                )
+            final_neg.append(neg_id)
 
-                stats["total"] += 1
-                stats[
-                    "fallback_random_valid"
-                ] += 1
-        # ========================================================
-        # MODE C:
-        # RANDOM DIFFERENT-CLASS NEGATIVE
-        # ========================================================
-
-        elif ( negative_mode == "random_valid" ):
-
-            neg_id = choose_random_valid( anchor_class )
-            final_neg.append( neg_id )
-
-            stats["total"] += 1
-            stats["random_valid"] += 1     
-
-    assert len(final_neg) == len(a_ids), (
-            f"build_negatives mismatch: "
-            f"anchors={len(a_ids)}, "
-            f"negatives={len(final_neg)}"
-        )
+    assert len(final_neg)==len(a_ids),"Negative sampling length mismatch"
 
     return final_neg
 
@@ -404,19 +239,17 @@ class AnchorPositiveDataset(Dataset):
         return (int(self.a_ids[idx]), int(self.p_ids[idx]))
 
 class TripletBatchCollator():
-    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current", legacy_label_2_id=None):
+    def __init__(self, all_traces, neg_ids, id_2_label, alpha_value=0.5, all_sims=None, negative_mode="current"):
         self.all_traces=all_traces
         self.neg_ids=neg_ids
         self.id_2_label=id_2_label
         self.all_sims=all_sims 
         self.negative_mode=negative_mode
         self.alpha_value=alpha_value
-        self.stats=defaultdict(int)
 
         classes=sorted(set(id_2_label.values()))
 
         self.valid_neg_ids_by_class={class_id: [idx for idx in neg_ids if (id_2_label[idx]!=class_id)] for class_id in classes} 
-        self.legacy_label_2_id = (legacy_label_2_id)
 
     def __call__(self, batch):
         a_ids=[item[0] for item in batch]
@@ -431,8 +264,6 @@ class TripletBatchCollator():
             all_sims=self.all_sims,
             negative_mode=self.negative_mode,
             valid_neg_ids_by_class=self.valid_neg_ids_by_class,
-            stats=self.stats,
-            legacy_label_2_id=self.legacy_label_2_id,
         )
 
         assert len(a_ids)==len(p_ids)==len(n_ids), f"Triplet batch mismatch: anchors={len(a_ids)}, positives={len(p_ids)}, negatives={len(n_ids)}"
@@ -444,7 +275,7 @@ class TripletBatchCollator():
         return (torch.as_tensor(a_batch, dtype=torch.float32).unsqueeze(-1), torch.as_tensor(p_batch, dtype=torch.float32).unsqueeze(-1), \
                 torch.as_tensor(n_batch, dtype=torch.float32).unsqueeze(-1))
 
-def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5, weight_decay=0.0):
+def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_value=0.5):
     model.train()
     running_loss=0.0
     progress_bar = tqdm( dataloader, desc=f"Epoch {epoch}" if epoch is not None else "Training", leave=False, dynamic_ncols=True)
@@ -461,21 +292,12 @@ def train_one_epoch(model, dataloader, optimizer, device, epoch=None, alpha_valu
 
         loss.backward()
         optimizer.step()
-        if weight_decay>0:
-            with torch.no_grad():
-                for group in optimizer.param_groups:
-                    factor=1.0-group["lr"]*weight_decay
-
-                    for param in group["params"]:
-                        if param.grad is not None and param.ndim > 1:
-                            param.mul_(factor)
         running_loss+=loss.item()
 
     return running_loss/len(dataloader)
 
-def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, batch_size=100,
-                learning_rate=1e-5, alpha_value=0.5, negative_mode="current", legacy_label_2_id=None,
-                validation_fn=None, val_every_steps=100, weight_decay=0.0): 
+def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt_path, epochs=100, 
+                    batch_size=100, learning_rate=1e-5, alpha_value=0.5, negative_mode="current"):
     best_loss=10.0
 
     Path(ckpt_path).parent.mkdir(exist_ok=True, parents=True)
@@ -489,8 +311,6 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
 
     all_traces_tensor=torch.from_numpy(all_traces).float().unsqueeze(-1).to(device)
     loss_log=[]
-    global_step=0
-    best_val_rank=float("inf")
 
     epoch_bar = tqdm(range(epochs), desc="TripletPower", dynamic_ncols=True)
 
@@ -508,18 +328,11 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             alpha_value=alpha_value,
             all_sims=all_sims,
             negative_mode=negative_mode,
-            legacy_label_2_id=legacy_label_2_id
         )
 
-        # steps=len(dataset)//batch_size
-        # tf_batches=[list(range(i,min(i+batch_size,len(dataset)))) for i in range(batch_size,(steps+1)*batch_size,batch_size)]
-        # loader=DataLoader(dataset, batch_sampler=tf_batches, collate_fn=collator_fn)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collator_fn, drop_last=True)
 
-        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value, weight_decay=weight_decay)
-
-        previous_step=global_step
-        global_step+=len(loader)
+        loss=train_one_epoch(model, loader, optimizer, device, epoch=epoch, alpha_value=alpha_value)
 
         epoch_bar.set_postfix(loss=f"{loss:.6f}", lr=f"{optimizer.param_groups[0]['lr']:.2e}")
         loss_log.append(loss)
@@ -533,17 +346,6 @@ def train_tripletpower(model, all_traces, a_ids, p_ids, id_2_label, device, ckpt
             tqdm.write(f"Best loss improved: " f"{old_best:.6f} -> {best_loss:.6f}")
 
             tqdm.write(f"Saved checkpoint to: {ckpt_path}")
-
-        if validation_fn is not None and ((global_step//val_every_steps > previous_step//val_every_steps) or epoch==epochs-1):
-            model.eval()
-            val_rank=validation_fn(model, epoch, global_step)
-
-            if val_rank<best_val_rank:
-                best_val_rank=val_rank
-                val_ckpt=Path(ckpt_path).parent/"triplet_val_best.pt"
-                torch.save(model.state_dict(), val_ckpt)
-
-                tqdm.write(f"[VAL BEST] step={global_step} rank={val_rank:.3f} saved={val_ckpt}")
 
         if (epoch+1) % 40 == 0:
             learning_rate /= 2
